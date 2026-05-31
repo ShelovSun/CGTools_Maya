@@ -133,6 +133,13 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.ui_main_wgt.customContextMenuRequested.connect(self.show_menu)
         self.ui.verticalLayout_3.addWidget(self.ui_main_wgt)
 
+        # 应用滑块当前值作为初始缩略图尺寸。
+        # firstView() 在本控件创建之前就把滑块设成了上次保存的 thumbSize，但那时
+        # ui_main_wgt 还不存在、valueChanged 也未连接，故初值不会传入视图——
+        # 不补这一步，首次打开图标恒为默认 120，不随滑块。须在 show_asset() 流式
+        # 加载条目之前设好，使新建条目即采用正确尺寸。
+        self.ui_main_wgt.setItemSize(self.ui.itemSize_Slider.value())
+
         # 设置分割器
         self.ui.mainWindow_splitter.setSizes([120, 500, 300])
         self.ui.mainWindow_splitter.setStretchFactor(0, False)

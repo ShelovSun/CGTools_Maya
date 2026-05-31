@@ -219,9 +219,15 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         return QtCore.QSize(size + self._padding * 2, size + 40 + self._padding * 2)
 
     def iconPercent(self):
-        """图标占 item 的百分比"""
+        """图标(正方形)高度占整个 item 高度的比例。
+
+        图标为边长 = tile 整宽 的正方形(左右铺满)，故比例 = tile宽 / tile高
+        = (size+2*padding) / (size+40+2*padding)。渐变背景在此比例处由图标区过渡到
+        文字区，恰与图标底边对齐；_paintText 也据此把文字放在图标正下方。
+        """
         size = self._thumbnail_size if self._items_widget is None else self._items_widget.itemSize()
-        return float(size) / float(size + 40)
+        pad = self._padding
+        return float(size + pad * 2) / float(size + 40 + pad * 2)
 
     def paint(self, painter, option, index):
         """
@@ -235,7 +241,7 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
             self._paintBackground(painter, option)
             self._paintIcon(painter, option)
             self._paintText(painter, option)
-            self._paintStatusIcon(painter, option)
+            # self._paintStatusIcon(painter, option)
         finally:
             painter.restore()
 
@@ -300,6 +306,9 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         color = self._text_selected_color if is_selected else self._text_color
 
         painter.setPen(QtGui.QPen(color))
+        # 文字字体与窗体一致，使用微软雅黑（同 UI 的 "Microsoft YaHei UI" 10pt、
+        # TableWidget 的字体）。默认 painter 字体随系统/Qt 主题变化，显式指定保持统一。
+        painter.setFont(QtGui.QFont(u"Microsoft YaHei UI", 10))
 
         # 绘制名称和中文名
         name = self.name()
@@ -407,20 +416,14 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         return QtCore.QRect(option.rect)
 
     def _iconRect(self, option):
-        """获取图标矩形"""
+        """图标矩形：顶部正方形、铺满 tile 整宽，左右与底部都不留白。
+
+        边长取 tile 整宽，方形缩略图(加载时已被强制缩放为正方形)正好铺满；其下方剩余
+        高度(= 文字区高 40)留给文字。不再扣 padding——padding 会在左右/底部留出空隙。
+        """
         rect = self._visualRect(option)
-        padding = self._padding
-
-        # 计算图标区域（上半部分）
-        icon_height = int((rect.height() - 40) * self.iconPercent())
-
-        width = rect.width() - padding * 2
-        height = icon_height - padding * 2
-
-        x = rect.x() + padding
-        y = rect.y() + padding
-
-        return QtCore.QRect(x, y, width, height)
+        side = rect.width()
+        return QtCore.QRect(rect.x(), rect.y(), side, side)
 
     def _scalePixmap(self, pixmap, rect):
         """缩放图片到指定矩形，使用缓存"""

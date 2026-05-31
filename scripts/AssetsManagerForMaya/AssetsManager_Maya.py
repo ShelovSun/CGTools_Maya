@@ -19,7 +19,7 @@ from my_vendor.Qt import QtCore
 from my_vendor.Qt import QtGui
 from my_vendor.Qt import QtWidgets
 from shiboken2 import wrapInstance
-from sources import assetTools_optimized as assetTools, sceneTools#, actionTools, ShotsManager_Maya, rigTools, modTools#, xgenTools#, list_items
+from sources import assetTools_optimized as assetTools, sceneTools  #, actionTools, ShotsManager_Maya, rigTools, modTools#, xgenTools#, list_items
 from utils import jsonHelper
 
 

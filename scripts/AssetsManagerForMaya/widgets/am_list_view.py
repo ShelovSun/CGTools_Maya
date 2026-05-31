@@ -74,7 +74,7 @@ class ListView(QtWidgets.QListView):
         super(ListView, self).__init__(parent)
 
         self._item_size = 120
-        self._spacing = 8
+        self._spacing = 5  # 缩略图之间统一的上下左右间隔(px)
         self._items_list = []
         self._current_item = None
         self._loading_batch_size = 20  # 每批加载数量
@@ -115,11 +115,22 @@ class ListView(QtWidgets.QListView):
         self._thumbnail_loader = ThumbnailLoader.instance()
 
     def setItemSize(self, size):
-        """设置 item 尺寸"""
+        """设置 item 尺寸，并令缩略图上下左右间隔一致。
+
+        条目 sizeHint = (size + 2*padding, size + text_height + 2*padding)
+        （见 ListItemOptimized.sizeHint：padding=4、text_height=40）。IconMode 下一旦
+        设了 gridSize，spacing 属性不再参与条目间距，间距 = gridSize - sizeHint。
+        旧实现网格取正方形 (size+spacing+40)²，导致横向多出 40px、纵向为 0；
+        现让网格在宽/高上各比 sizeHint 多出一个 _spacing，间隔即四向一致(=_spacing)。
+        """
         self._item_size = size
         self.setIconSize(QtCore.QSize(size, size))
-        grid_size = size + self._spacing + 40  # 40 for text
-        self.setGridSize(QtCore.QSize(grid_size, grid_size))
+
+        padding = 4       # 同 ListItemOptimized._padding
+        text_height = 40  # 同 ListItemOptimized.sizeHint 文字区高度
+        grid_w = size + padding * 2 + self._spacing
+        grid_h = size + text_height + padding * 2 + self._spacing
+        self.setGridSize(QtCore.QSize(grid_w, grid_h))
 
     def itemSize(self):
         """获取 item 尺寸"""

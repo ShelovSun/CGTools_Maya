@@ -1,0 +1,125 @@
+#coding: utf8
+#cython: boundscheck=False, wraparound=False, nonecheck=False
+
+import os, sys,threading
+import cython
+from PySide2 import  QtWidgets, QtCore, QtGui
+sys.path.append('C:\\CgTeamWork_v6.2\\bin\\base')
+import cgtw2
+t_tw = cgtw2.tw()
+from . import scriptsPath
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+
+
+def test():
+    print("Common is working in Cython !")
+
+cpdef projectSetting():
+    sys.path.append(scriptsPath)
+    from utils import jsonHelper
+    cdef dict data
+    data = jsonHelper.readDictFromFile('%s/config/projectSetting.json' % scriptsPath)  
+    return data
+
+cpdef _listItems_CGT(str tab,str project,str type,str asset,str assetmaya,str assetstapy,str assetentity,str assetcnname):
+    cdef str TW_proj = str(projectSetting()['projectdiction'][project])
+    cdef list t_asset_ids = t_tw.info.get_id(TW_proj, asset,[[assetmaya, '=', u"完成"], 'and', [assetstapy, '=', type]])
+    cdef list TW_dictionInfo = t_tw.info.get(TW_proj, asset, t_asset_ids, [assetentity,assetcnname])
+    cdef dict info
+    cdef list itemsTextList = []
+    for info in TW_dictionInfo:
+        itemsTextList.append(info[assetentity] + '   /   ' + info[assetcnname])
+    return itemsTextList
+
+cpdef _listWidgetAddItems_CGT(listWgt,str tab,int itemSize,str project,str type,str asset,str assetmaya,str assetstapy,str assetentity,str assetcnname,bint isList):
+    cdef str tempPath = "{}/AssetsManagerIconTemp".format(os.environ.get('TEMP'))
+    cdef str path = str(('{0}/{1}/{2}/{3}').format(projectSetting()['rootPath'], project, tab, type))
+    cdef str TW_proj = str(projectSetting()['projectdiction'][project])
+    cdef list t_asset_ids = t_tw.info.get_id(TW_proj, asset,[[assetmaya, '=', u"完成"], 'and', [assetstapy, '=', type]])
+    cdef list TW_dictionInfo = t_tw.info.get(TW_proj, asset, t_asset_ids, [assetentity,assetcnname])
+    cdef str icon_path
+    cdef dict info
+    if isList:
+        for info in TW_dictionInfo:
+            icon_path = 'None'
+            sub_thread = threading.Thread(target=_addItems_CGT,args=(listWgt, itemSize, project, type, info[assetentity], path, icon_path, info[assetcnname]))
+            sub_thread.setDaemon(True)
+            sub_thread.start()
+            sub_thread.join()
+    else:
+        for info in TW_dictionInfo:
+            icon_path = ('{0}/{1}/{2}/{3}/{4}.png').format(tempPath, project, tab, type, info[assetentity])
+            if QtCore.QFileInfo(icon_path).exists() is False:
+                icon_path = ('{0}/{1}/{2}/{1}.png').format(path, info[assetentity], projectSetting()['iconFolder'])
+                if QtCore.QFileInfo(icon_path).exists() is False:
+                    icon_path = str(projectSetting()['defaultIcon'])
+            sub_thread = threading.Thread(target=_addItems_CGT,args=(listWgt, itemSize, project, type, info[assetentity], path, icon_path, info[assetcnname]))
+            sub_thread.setDaemon(True)
+            sub_thread.start()
+            sub_thread.join()
+
+cpdef _listWidgetAddItems_CGT_Search(listWgt,str tab,int itemSize,str project,str type,str asset,str assetmaya,str assetstapy,str assetentity,str assetcnname,unicode keyWords,bint isList):
+    cdef str tempPath = "{}/AssetsManagerIconTemp".format(os.environ.get('TEMP'))
+    cdef str path = ('{0}/{1}/{2}/{3}').format(projectSetting()['rootPath'], project, tab, type)
+    cdef str TW_proj = str(projectSetting()['projectdiction'][project])
+    cdef list t_asset_ids = t_tw.info.get_id(TW_proj, asset,[[assetmaya, '=', u"完成"], 'and', [assetstapy, '=', type]])
+    cdef list TW_dictionInfo = t_tw.info.get(TW_proj, asset, t_asset_ids, [assetentity,assetcnname])
+    cdef str icon_path
+    cdef dict info
+    if isList:
+        for info in TW_dictionInfo:
+            if info[assetentity].lower().find(keyWords.lower()) != -1 or info[assetcnname].find(keyWords) != -1:
+                icon_path = 'None'
+                sub_thread = threading.Thread(target=_addItems_CGT,args=(listWgt, itemSize, project, type, info[assetentity], path, icon_path,info[assetcnname]))
+                sub_thread.setDaemon(True)
+                sub_thread.start()
+                sub_thread.join()
+    else:
+        for info in TW_dictionInfo:
+            if info[assetentity].lower().find(keyWords.lower()) != -1 or info[assetcnname].find(keyWords) != -1:
+                icon_path = ('{0}/{1}/{2}/{3}/{4}.png').format(tempPath, project, tab, type, info[assetentity])
+                if QtCore.QFileInfo(icon_path).exists() is False:
+                    icon_path = ('{0}/{1}/{2}/{1}.png').format(path, info[assetentity],projectSetting()['iconFolder'])
+                    if QtCore.QFileInfo(icon_path).exists() is False:
+                        icon_path = str(projectSetting()['defaultIcon'])
+                sub_thread = threading.Thread(target=_addItems_CGT,args=(listWgt, itemSize, project, type, info[assetentity], path, icon_path,info[assetcnname]))
+                sub_thread.setDaemon(True)
+                sub_thread.start()
+                sub_thread.join()
+
+cpdef _listItems_CGT_Search(str tab,str project,str type,str asset,str assetmaya,str assetstapy,str assetentity,str assetcnname,unicode keyWords):
+    cdef str TW_proj = str(projectSetting()['projectdiction'][project])
+    cdef list t_asset_ids = t_tw.info.get_id(TW_proj, asset,[[assetmaya, '=', u"完成"], 'and', [assetstapy, '=', type]])
+    cdef list TW_dictionInfo = t_tw.info.get(TW_proj, asset, t_asset_ids, [assetentity,assetcnname])
+    cdef list itemslist = []
+    cdef dict info
+    for info in TW_dictionInfo:
+        if info[assetentity].lower().find(keyWords.lower()) != -1 or info[assetcnname].find(keyWords) != -1:
+            itemslist.append('      %s  /  %s'%(info[assetentity],info[assetcnname]))
+    return itemslist
+
+cpdef _addItems_CGT(listWgt,int itemSize,str project,str type,unicode role_name,str path,str icon_path,unicode ch_name):
+    item_data = _itemDetail(project,type,role_name,path)
+    item = QtWidgets.QListWidgetItem()
+    item.setText(role_name + '   /   ' + ch_name) 
+    item.setData(QtCore.Qt.UserRole, item_data)  
+    if icon_path == 'None' :
+        pass
+    else:
+        icon = QtGui.QIcon()
+        pixmap = QtGui.QPixmap(icon_path)  
+        icon.addPixmap(pixmap, QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        item.setIcon(icon)
+        listWgt.setIconSize(QtCore.QSize(itemSize, itemSize))
+    item.setTextAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
+    listWgt.addItem(item)
+
+cpdef _itemDetail(str project,str type,unicode role_name,str path):
+    cdef dict item_data
+    item_data = {'role_name': role_name,
+                 'project': project,
+                 'type': type}
+    return (item_data)

@@ -1,0 +1,20 @@
+{
+    "material_dict": {
+        "name": "defaultMaterial",
+        "renderEngine": "Redshift",
+        "rgbColorSpace": "sRGB",
+        "rawColorSpace": "Raw",
+        "udimMethode": 2,
+        "udim": false,
+        "assignMaterial": 1,
+        "fullControl": false
+    },
+    "diffuse_dict": {
+        "name": "french_press_metal_diffuse.png",
+        "path": "F:/digital-assets/assets/_assets_archive/52_french_press/tex/french_press_metal/french_press_metal_diffuse.png"
+    },
+    "metalness_dict": {
+        "name": "french_press_metal_metalness.png",
+        "path": "F:/digital-assets/assets/_assets_archive/52_french_press/tex/french_press_metal/french_press_metal_metalness.png"
+    }
+}

@@ -1,0 +1,62 @@
+{
+    // ============================================
+    // Maya 2022 Python 开发环境配置
+    // 目标: Python 3.7.7 (Maya 2022 内置)
+    // ============================================
+
+    // 注意: mayapy.exe 不被 VSCode 识别为标准解释器
+    // 我们使用 Pylance 离线模式 + 额外路径来实现自动补全
+
+    // Pylance 语言服务器配置
+    "python.languageServer": "Pylance",
+    "python.analysis.typeCheckingMode": "off",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.completeFunctionParens": true,
+    "python.analysis.autoSearchPaths": true,
+
+    // 自动补全路径 - Maya 2022 Python 3.7
+    "python.autoComplete.extraPaths": [
+        "C:/Program Files/Autodesk/Maya2022/Python37/Lib/site-packages",
+        "C:/Program Files/Autodesk/Maya2022/Python37/Lib",
+        "C:/Program Files/Autodesk/Maya2022/devkit/other/pymel/extras/completion/py",
+        "${workspaceFolder}/scripts",
+        "${workspaceFolder}"
+    ],
+
+    // 静态分析路径 - Maya 2022 Python 3.7
+    "python.analysis.extraPaths": [
+        "C:/Program Files/Autodesk/Maya2022/Python37/Lib/site-packages",
+        "C:/Program Files/Autodesk/Maya2022/Python37/Lib",
+        "C:/Program Files/Autodesk/Maya2022/Python37/DLLs",
+        "${workspaceFolder}/scripts"
+    ],
+
+    // Pylint 配置 - 禁用 Maya 相关的误报
+    "python.linting.pylintArgs": [
+        "--disable=C0103,C0111,R0903,R0913,W0613",
+        "--generated-members=cmds.*,pm.*,om.*,omui.*,OpenMaya.*",
+        "--extension-pkg-whitelist=PySide2,shiboken2"
+    ],
+
+    // 代码格式化配置
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": ["--line-length", "100"],
+
+    // 文件排除
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/.git": true
+    },
+
+    // 搜索排除
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/__pycache__": true
+    },
+
+    // 关联 .mel 文件
+    "files.associations": {
+        "*.mel": "mel"
+    }
+}

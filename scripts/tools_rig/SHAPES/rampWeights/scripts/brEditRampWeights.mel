@@ -1,0 +1,427 @@
+//
+// Procedure Name:
+//      brRampWeightsCreateAttributeControls
+//
+// Description:
+//      Create the controls for the ramp weights attributes and connect
+//      them.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//
+// Return Value:
+//      None
+//
+global proc brRampWeightsCreateAttributeControls( string $node )
+{
+    setParent brRampWeightsAttributesLayout;
+
+    string $form = `formLayout`;
+
+    string $axisLabel = `text -label "Axis" -annotation (uiRes("m_brEditRampWeights.kAxis"))`;
+    string $axis = `optionMenu -annotation (uiRes("m_brEditRampWeights.kAxis"))`;
+        menuItem -label "X" -data 0;
+        menuItem -label "Y" -data 1;
+        menuItem -label "Z" -data 2;
+    string $start = `floatSliderGrp -label "Range Start"
+                                    -field 1
+                                    -minValue -25
+                                    -maxValue 25
+                                    -precision 3
+                                    -columnWidth 2 70
+                                    -columnAttach3 "right" "right" "right"
+                                    -columnOffset3 0 0 0
+                                    -annotation (uiRes("m_brEditRampWeights.kRangeStart"))`;
+    string $end = `floatSliderGrp -label "Range End"
+                                  -field 1
+                                  -minValue -25
+                                  -maxValue 25
+                                  -precision 3
+                                  -columnWidth 2 70
+                                  -columnAttach3 "right" "right" "right"
+                                  -columnOffset3 0 0 0
+                                  -annotation (uiRes("m_brEditRampWeights.kRangeEnd"))`;
+    string $offset = `floatSliderGrp -label "Offset"
+                                     -field 1
+                                     -minValue -25
+                                     -maxValue 25
+                                     -precision 3
+                                     -columnWidth 2 70
+                                     -columnAttach3 "right" "right" "right"
+                                     -columnOffset3 0 0 0
+                                     -annotation (uiRes("m_brEditRampWeights.kOffset"))`;
+    string $mirror = `checkBoxGrp -label "Mirror"
+                                  -columnWidth 2 70
+                                  -columnAttach2 "right" "left"
+                                  -columnOffset2 0 11
+                                  -annotation (uiRes("m_brEditRampWeights.kMirror"))`;
+    string $clamp = `checkBoxGrp -label "Clamp"
+                                 -columnWidth 2 70
+                                 -columnAttach2 "right" "left"
+                                 -columnOffset2 0 11
+                                 -annotation (uiRes("m_brEditRampWeights.kClamp"))`;
+    string $centered = `checkBoxGrp -label "Centered"
+                                    -columnWidth 2 70
+                                    -columnAttach2 "right" "left"
+                                    -columnOffset2 0 11
+                                    -annotation (uiRes("m_brEditRampWeights.kCentered"))`;
+    string $invert = `checkBoxGrp -label "Invert"
+                                  -columnWidth 2 70
+                                  -columnAttach2 "right" "left"
+                                  -columnOffset2 0 11
+                                  -annotation (uiRes("m_brEditRampWeights.kInvert"))`;
+    string $transform = `checkBoxGrp -label "Use Transform"
+                                     -columnWidth 2 70
+                                     -columnAttach2 "right" "left"
+                                     -columnOffset2 0 11
+                                     -annotation (uiRes("m_brEditRampWeights.kUseTransform"))`;
+
+    string $div = `separator -style "in" -horizontal 1`;
+
+    string $presets = `formLayout -width 355`;
+        string $presetsLabel = `text -label "Presets" -align "right"`;
+        string $defaultBtn = `iconTextButton -width 38 -height 38 -image "rampWeightsDefault.svg"`;
+        string $centeredBtn = `iconTextButton -width 38 -height 38 -image "rampWeightsCentered.svg"`;
+        string $mirroredBtn = `iconTextButton -width 38 -height 38 -image "rampWeightsMirrored.svg"`;
+
+    formLayout  -edit
+
+                -attachForm $presetsLabel "left" 0
+                -attachForm $presetsLabel "top" 5
+                -attachForm $defaultBtn "top" 0
+                -attachForm $centeredBtn "top" 0
+                -attachForm $mirroredBtn "top" 0
+
+                -attachControl $defaultBtn "left" 12 $presetsLabel
+                -attachControl $centeredBtn "left" 5 $defaultBtn
+                -attachControl $mirroredBtn "left" 5 $centeredBtn
+
+                -attachPosition $presetsLabel "right" 0 40
+
+                $presets;
+
+    setParent ..;
+
+
+    formLayout  -edit
+
+                -attachForm $axisLabel "top" 5
+                -attachForm $axisLabel "left" 118
+                -attachForm $axis "top" 2
+                -attachForm $start "left" 0
+                -attachForm $start "right" 0
+                -attachForm $end "left" 0
+                -attachForm $end "right" 0
+                -attachForm $offset "left" 0
+                -attachForm $offset "right" 0
+                -attachForm $mirror "left" 0
+                -attachForm $centered "left" 0
+                -attachForm $transform "left" 0
+                -attachForm $div "left" 0
+                -attachForm $div "right" 0
+                -attachForm $presets "left" 0
+
+                -attachControl $axis "left" 10 $axisLabel
+                -attachControl $start "top" 5 $axis
+                -attachControl $end "top" 5 $start
+                -attachControl $offset "top" 5 $end
+                -attachControl $mirror "top" 5 $offset
+                -attachControl $clamp "left" 0 $mirror
+                -attachControl $clamp "top" 5 $offset
+                -attachControl $centered "top" 5 $mirror
+                -attachControl $transform "top" 5 $centered
+                -attachControl $invert "left" 0 $centered
+                -attachControl $invert "top" 5 $clamp
+                -attachControl $div "top" 10 $transform
+                -attachControl $presets "top" 10 $div
+
+                $form;
+
+    setParent ..;
+
+
+    connectControl $axis ($node + ".axis");
+    connectControl $start ($node + ".rangeStart");
+    connectControl $end ($node + ".rangeEnd");
+    connectControl $offset ($node + ".offset");
+    connectControl -index 2 $mirror ($node + ".mirror");
+    connectControl -index 2 $clamp ($node + ".clamp");
+    connectControl -index 2 $centered ($node + ".centered");
+    connectControl -index 2 $invert ($node + ".invert");
+    connectControl -index 2 $transform ($node + ".useTransform");
+
+    iconTextButton -edit
+                   -command ("brRampWeightsApplyPreset \"" + $node + "\" \"default\"")
+                   -annotation (uiRes("m_brEditRampWeights.kPresetDefault"))
+                   $defaultBtn;
+    iconTextButton -edit
+                   -command ("brRampWeightsApplyPreset \"" + $node + "\" \"centered\"")
+                   -annotation (uiRes("m_brEditRampWeights.kPresetCentered"))
+                   $centeredBtn;
+    iconTextButton -edit
+                   -command ("brRampWeightsApplyPreset \"" + $node + "\" \"mirrored\"")
+                   -annotation (uiRes("m_brEditRampWeights.kPresetMirrored"))
+                   $mirroredBtn;
+}
+
+
+//
+// Procedure Name:
+//      connectTransform
+//
+// Description:
+//      Connect the placement transform at the given index.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      transform       The name of the transform node.
+//      index           The index of the ramp weights node.
+//
+// Return Value:
+//      None
+//
+proc connectTransform( string $node, string $transform, int $index )
+{
+    string $srcAttr = $transform + ".worldMatrix[0]";
+    string $destAttr = $node + ".placementMatrixList[" + $index + "]";
+    brWeightsControllerConnectAttr($srcAttr, $destAttr);
+
+    brRampWeightsSetTransformButton($node, $index, 1);
+}
+
+
+//
+// Procedure Name:
+//      brRampWeightsCreateTransform
+//
+// Description:
+//      Create a locator as the placement transform at the given index.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      index           The index of the ramp weights node.
+//
+// Return Value:
+//      None
+//
+global proc brRampWeightsCreateTransform( string $node, int $index )
+{
+    string $loc[] = `spaceLocator -name ($node + "_placement_" + $index)`;
+    connectTransform($node, $loc[0], $index);
+}
+
+
+//
+// Procedure Name:
+//      brRampWeightsConnectSelectedTransform
+//
+// Description:
+//      Connect the selected transform node as the placement transform
+//      at the given index.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      index           The index of the ramp weights node.
+//
+// Return Value:
+//      None
+//
+global proc brRampWeightsConnectSelectedTransform( string $node, int $index )
+{
+    string $sel[] = `ls -selection -transforms`;
+    if (size($sel))
+        connectTransform($node, $sel[0], $index);
+}
+
+
+//
+// Procedure Name:
+//      getTransformName
+//
+// Description:
+//      Return the name of the connected placement transform at the
+//      given index.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      index           The index of the ramp weights node.
+//
+// Return Value:
+//      string          The name of the transform node.
+//
+proc string getTransformName( string $node, int $index )
+{
+    string $conn = `connectionInfo -sourceFromDestination ($node + ".placementMatrixList[" + $index + "]")`;
+    string $items[] = stringToStringArray($conn, ".");
+    return $items[0];
+}
+
+
+//
+// Procedure Name:
+//      brRampWeightsSelectTransform
+//
+// Description:
+//      Select the placement transform at the given index.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      index           The index of the ramp weights node.
+//
+// Return Value:
+//      None
+//
+global proc brRampWeightsSelectTransform( string $node, int $index )
+{
+    string $transform = getTransformName($node, $index);
+    select -replace $transform;
+}
+
+
+//
+// Procedure Name:
+//      brRampWeightsDisconnectTransform
+//
+// Description:
+//      Disconnect the placement transform at the given index.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      index           The index of the ramp weights node.
+//
+// Return Value:
+//      None
+//
+global proc brRampWeightsDisconnectTransform( string $node, int $index )
+{
+    string $conn = `connectionInfo -sourceFromDestination ($node + ".placementMatrixList[" + $index + "]")`;
+    string $destAttr = $node + ".placementMatrixList[" + $index + "]";
+    brWeightsControllerDisconnectAttr($conn, $destAttr);
+
+    brRampWeightsSetTransformButton($node, $index, 0);
+}
+
+
+//
+// Procedure Name:
+//      brRampWeightsDeleteTransform
+//
+// Description:
+//      Delete the placement transform at the given index.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      index           The index of the ramp weights node.
+//
+// Return Value:
+//      None
+//
+global proc brRampWeightsDeleteTransform( string $node, int $index )
+{
+    string $transform = getTransformName($node, $index);
+    brRampWeightsDisconnectTransform($node, $index);
+    delete $transform;
+    select -replace $node;
+}
+
+
+//
+// Procedure Name:
+//      brRampWeightsSetTransformButton
+//
+// Description:
+//      Set the image and command for the transform button depending
+//      on whether a placement is connected or not.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      index           The index of the ramp weights node.
+//      state           True, if there is a connected transform.
+//
+// Return Value:
+//      None
+//
+global proc brRampWeightsSetTransformButton( string $node, int $index, int $state )
+{
+    string $image;
+    string $cmd;
+    int $enabled;
+    if ($state)
+    {
+        $cmd = "brRampWeightsSelectTransform \"" + $node + "\" " + $index;
+        $image = "rampWeightsTransformSelect.svg";
+        $enabled = 1;
+    }
+    else
+    {
+        $cmd = "brRampWeightsCreateTransform \"" + $node + "\" " + $index;
+        $image = "rampWeightsTransformAdd.svg";
+        $enabled = 0;
+    }
+    string $button = "brRampWeightsTransformButton" + $index;
+    iconTextButton -edit -image $image -command $cmd $button;
+    menuItem -edit -enable $enabled ("brRampWeightsDeleteTransformItem" + $index);
+}
+
+
+//
+// Procedure Name:
+//      brRampWeightsApplyPreset
+//
+// Description:
+//      Apply the given preset name to the ramp weights node.
+//      Since applying a preset through the default Maya way the invert
+//      list array gets cleared along with it. Therefore the current
+//      invert states get stored and re-applied afterwards.
+//
+// Input Arguments:
+//      node            The name of the ramp weights node.
+//      preset          The name of the preset.
+//
+// Return Value:
+//      None
+//
+global proc brRampWeightsApplyPreset( string $node, string $preset )
+{
+    // Store the individual invert states for each output index.
+    int $indices[] = `getAttr -multiIndices ($node + ".invertList")`;
+    int $invertList[];
+    for ($index in $indices)
+        $invertList[size($invertList)] = `getAttr ($node + ".invertList[" + $index + "]")`;
+
+    string $path = brWeightsControllerContentPath();
+    $path += "/presets/attrPresets/rampWeights";
+    applyPresetToNode($node, "", "", $path + "/" + $preset + ".mel", 1);
+
+    // Re-apply the invert states.
+    for ($i = 0; $i < size($indices); $i ++)
+        setAttr ($node + ".invertList[" + $indices[$i] + "]") $invertList[$i];
+}
+
+// ---------------------------------------------------------------------
+// MIT License
+//
+// Copyright (c) 2019 Ingo Clemens, brave rabbit
+// rampWeights and weightsServer are under the terms of the MIT License
+//
+// Permission is hereby granted, free of charge, to any person obtaining
+// a copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to
+// permit persons to whom the Software is furnished to do so, subject to
+// the following conditions:
+//
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+// SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+//
+// Author: Ingo Clemens    www.braverabbit.com
+// ---------------------------------------------------------------------

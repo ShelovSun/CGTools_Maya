@@ -1,0 +1,188 @@
+===CHANGELOG===
+1.5.5
+ - In previous version I decided to generate random names for nucleus node used by BroDynamics. But no I think that I was a bad idea. So the default name will now be "nucleus_BroDynamics". If you want to tweak any nulceus core settings, you can create a nucleus node, rename it into "nucleus_BroDynamics", and it will be used instead of a new one, with most (not all) settings left as you set them. After simulation any changed settings will revert back.
+
+1.5.4
+ - Added: Debug mode. In this mode the simulation will only create the temporary rig, connecting your controls with Expression, allowing you to play with the simulation, test different settings. Please mind, that it is only recommended to be used in Debuging and Testing purposes, please make sure to save a copy of your scene, you may not be able to Undo some of it. Check status tip for more info.
+
+1.5.3
+ - Hotfix: Fixed the issue with presets not saving some parameters correctly. Backwards compatibility with presets is now broken. Sorry about that.
+
+1.5.2
+ - Fix: Chain simulation now properly works with negative frames (below zero, and zero frame). Before that simulation was only working on frames after frame 1.
+
+1.5.1
+ - Fix: Increased maximum value of Skip First N Frames and some other parameters.
+
+1.5.0
+ - Added compatibility with Maya 2017. Had to change the way PySide is imported.
+ - Fix for working with paths containing non-latin characters, all paths are in unicode now.
+ - Started adding presets. Check the Presets folder inside BroDynamics folder.
+
+1.4.6
+ - Fix for rotation order issue with Chain simulation mode, reported by some users. Should be no glitches now.
+
+1.4.5
+ - Installation script upgrade
+
+1.4.4
+ - Maya version and OS will be detected automatically when using Bug Report or Survey from the Help menu.
+ - Updated installation process. Script will attempt to find Maya.env automatically, and only ask to point to if it can't find it. Since it's using cmds.about() to find Maya.env, it should always work.
+ - Fixed some connectivity bugs which could cause Maya to crash when trying to launch BroDynamics without internet connection.
+
+1.4.3
+ - Added an easter egg. Think you can find it?
+ - A few fixes and improvements to the code
+ - Added facebook page link to Help menu
+
+1.4.2
+ - Fixed an issue, which caused the last control to have incorrect rotation, forcing it to be in straight line with control before it. It should maintain correct initial rotation now.
+
+1.4.1
+ - Changed intro text and added bug report and usage survey links to the Help menu.
+ - Gone through all print actions throughout all files, and replaced them with custom log function. So ALL printing except for errors can be now disabled through BroTools.BroDynamics.log.debugEnabled = False command.
+ - Added a few more icons to the menu bar.
+
+1.4.0
+ - A lot of bug fixes and improvements overall.
+ - Compatibility fix! Now works with Maya 2014 too. Probably with 2013 as well.
+ - UI reworked, now windows delete properly when you close the main BroDynamics window, docked or undocked. Memory leak here and performance impact after closing and openning it often should be fixed now.
+ - Icons everywhere! :D
+ - NEW! Added single object simulation based on nParticles.
+ - NEW! Rigid Body and Ragdoll simulation module.
+ - Added SnapRuntime plugin for object matching for RBD mostly. Thank you, Red9.
+ - Fixed Get button in Batch Window
+ - Batch window's list will now properly update when you hit Undo. Now no need to worry about making mistakes there at all.
+
+1.2.4
+ - UI improvements. Added tabs.
+ - Added ability to simulate single controls, by selecting their parent control and then the control to apply dynamics to.
+ - Batch window workflow improvements:
+ --- More buttons! Updating data and renaming.
+ --- You can simulate only selected or all objects in the list now. If something is selected in the list - only those objects sets will be simulated. If nothing is selected -everything will be simulated.
+ --- Buttons with icons.
+ - *.py files now released instead of  *.pyc. Future-proofing the script to work with newer Maya versions.
+
+1.2.3
+ - Cleaned up files and code a bit. Removed unused files.
+- Bugfix (''Error: str object has no attribute items'') to loa and further linux compatibility testing.
+
+1.2.2
+ - Linux and MacOS compatibility improvement. Changed how all paths work, which was the main issue so far. Need further testing.
+ - Version updates now visible in status bar
+
+1.2.1
+ - Added 'latest version' check in Changelog window.
+ - Added error check for loading css style. You can remove the styling by renaming or deleting the BroDynamics.css file. It is also first step on the road to linux-compatibility.
+
+1.2.0
+ - Added ability to save and load presets to ini files.
+ - Added Batch simulation for multiple objects. Find it in Tools - Batch. Settings will be stored from main view. Batch data is stored in a node called broDynamics_Data, you can move it between scenes or embed it into the rig file.
+ - Added proper limits and steps to parameter inputs.
+ - Added time-calculation, watch the lower left corner of Maya (default hint field). It will give you time estimation. Also you will see how much time was spent for simulation in viewport and script view.
+ - Added ability to interrupt simulation in the process. Hold ESC to do so.
+ - Added - you can now change thickness of the hair and if it's not 0, you can see simulation thickness in the viewport.
+ - Fixed the way UI is parented to main maya window. It should now be destroyed properly on closing. Before this fix it was leaving garbage in the system until you restarted maya. No biggie, unless you closed and opened the window often.
+ - Fixed - autoKeyframing will now be turned off during simulation and then restored, if it was turned on.
+ - Fixed - you now don't have to hit Ctrl+Z or manually remove keyframes from objects, they will be removed automatically before simulation.
+
+1.1.2
+ - Fixed a few installation errors and re-factores the structure of the script folder to make it cleaner and to make it actually work better.
+
+1.1.1
+ - Now selection will stay after the simulation is complete, so you won't need to re-select objects again to try new iteration. Just mind that if you already have keys on objects, during simulation it may look weird in viewport, but the result will be correct. \
+
+1.1.0
+ - Added colliders. Renamed Edit into Presets. Other minor improvements. (Simulating with Colliders might have bugs, but if there are no colliders in the list, then it works exactly the same as before) \
+
+1.0.1
+ - Faster simulation and undo process. Aim mode works much faster with Do Not Refresh on.
+===LICENSE===
+===============================================================================
+
+Copyright (c) 2016, Mikhail Davydov
+All rights reserved.
+
+If you have any questions about this License Agreement, not sure about any of it's terms or if you wish to ask about getting the software under other special terms, feel free to contact me: nixesvfx@gmail.com
+
+BroTools for Maya End User License Agreement (EULA)
+
+This is a legal agreement between you and Mikhail Davydov covering your use of BroTools for Maya and BroDynamics (the "Software").
+
+1) By purchasing BroDynamics and\or BroTools (from here and on - The Software), you agree to not redistribute
+   these scripts, outside of your production environment.
+
+2) Tools can be used for personal and/or professional work for film, broadcast, advertising,
+   video games, and other forms of multi-media.
+
+3) The Software is owned by Mikhail Davydov and is protected by copyright laws
+   and international treaty provisions. Therefore, you must treat the Software like any other
+   copyrighted material.
+
+4) You may not distribute, rent, sub-license or otherwise make available to others the Software
+   or documentation or copies thereof, except as expressly permitted in this License without prior
+   written consent from Mikhail Davydov. In the case of an authorized transfer, the
+   transferee must agree to be bound by the terms and conditions of this License Agreement.
+
+5) You may not remove any proprietary notices, labels, trademarks on the Software or
+   documentation.
+
+6) You are allowed to modify the software to best suit your production requirements withing your production environment. You are not allowed to redistribute, rent, sub-license or otherwise make available to others the modified Software or copies there of.
+
+7) You are allowed to give modified versions of the software to other people inside of your production environment, if they purchased the original version of it.
+
+8) Limited warranty: BroTools and BroDynamic tools and documentation are "as is" without any
+   warranty as to their performance, merchantability or fitness for any particular purpose.
+   The licensee assumes the entire risk as to the quality and performance of the software.
+   In no event shall Mikhail Davydov or anyone else who has been involved in the creation, development,
+   production, or delivery of this software be liable for any direct, incidental or consequential
+   damages, such as, but not limited to, loss of anticipated profits, benefits, use, or data resulting
+   from the use of this software, or arising out of any breach of warranty.
+
+9) Mikhail Davydov leaves the right after himself to change the terms of this License Agreement.
+
+10) By Clicking Accept you agree to the terms of this license agreement.
+
+
+THIS SOFTWARE IS PROVIDED BY MIKHAIL DAVYDOV "AS IS" AND ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL MIKHAIL DAVYDOV
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+===============================================================================
+===WELCOME===
+Thanks for buying BroDynamics and supporting it's author and further development!
+(Links clicked in this window should open in your browser)
+
+Feel free to contact me about any bugs or errors or suggestions about this tool:
+Usage survey:
+<a href="http://goo.gl/forms/ZCvy6U2SHasmHudB2">http://goo.gl/forms/ZCvy6U2SHasmHudB2</a>
+
+Google Bug report form:
+<a href="http://goo.gl/forms/tmx9lu3TqdBbI32j2">http://goo.gl/forms/tmx9lu3TqdBbI32j2</a>
+
+CreativeCrash Bugs:
+<a href="https://www.creativecrash.com/maya/script/brodynamics/bugs#tabs">https://www.creativecrash.com/maya/script/brodynamics/bugs#tabs</a>
+
+CreativeCrash Feature Requests:
+<a href="https://www.creativecrash.com/maya/script/brodynamics/feature_requests#tabs">https://www.creativecrash.com/maya/script/brodynamics/feature_requests#tabs</a>
+
+CreativeCrash Reviews:
+<a href="https://www.creativecrash.com/maya/script/brodynamics/comments#tabs">https://www.creativecrash.com/maya/script/brodynamics/comments#tabs</a>
+
+E-Mail: nixesvfx@gmail.com
+
+Also, I'd really like to know how, where and what for you're using BroDynamics, so feel free to send me links to examples of it's use, projects you used it for, and so on! :)
+
+You can view documentation here:
+<a href="http://www.nixes.ru/BroTools/Documentation/BroDynamics/">http://www.nixes.ru/BroTools/Documentation/BroDynamics/</a>
+
+And the script has version-check, watch the status bar, it will tell you if there is a new version available. All it does is it downloads a txt file from dropbox, containing the latest version number.
+You can disable version-checking in settings.ini file.
+
+*This window will only appear once. If you want to see it again, you can go to BroDynamics folder, open settings.ini file with a text editor (notepad) and set firstLaunch parameter to True again.

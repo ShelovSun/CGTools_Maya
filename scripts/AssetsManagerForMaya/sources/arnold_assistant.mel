@@ -1,0 +1,145 @@
+global proc subdivisionLOW()//关闭物体细分
+{pickWalk -d down;
+string $sel[] = `ls -sl`;
+
+string $moda;
+for($moda in $sel)
+
+{   
+setAttr ($moda+".aiSubdivType") 0;
+
+setAttr ($moda+".aiSubdivIterations") 1;
+
+setAttr ($moda+".aiSubdivUvSmoothing") 0;
+}}
+
+global proc offOpaque()//设置为非透明物体
+{pickWalk -d down;
+string $sel[] = `ls -sl`;
+string $moda;
+
+for($moda in $sel)
+
+{   
+setAttr ($moda+".aiOpaque") 0;     
+     }}
+
+global proc onOpaque()//设置为透明物体
+{pickWalk -d down;
+string $sel[] = `ls -sl`;
+
+string $moda;
+for($moda in $sel)
+
+{   
+setAttr ($moda+".aiOpaque") 1;     
+     }}
+
+if(`window -ex ArnoldAssistant`)
+{deleteUI ArnoldAssistant;}
+window 
+       -t"Arnold助手"
+       -h 200    
+       -w 300
+       ArnoldAssistant;
+columnLayout -adjustableColumn true;//使按钮宽度自动适配窗口
+text -label "\n AR助手V0.1 By xym~\n";
+
+intSliderGrp -label "细分级别" -value 3 -field true -min 1 -max 5 Snmb1;
+button -label "开启物体细分" -command "ARsudvision";
+
+button -label "关闭物体细分" -command "subdivisionLOW";
+text -label "\n";
+button -label "设置为透明物体" -command "offOpaque";
+button -label "设置为非透明物体" -command "onOpaque";
+text -label "\n";
+button -label "设置为遮罩" -command "setMatte";
+button -label "设置为非遮罩" -command "UnsetMatte";
+
+
+text -label "\n";
+
+floatSliderGrp -label "置换" -value 1 -field true -min 0 -max 3 Hight;
+floatSliderGrp -label "设置0高度灰度" -value 0.5 -field true -min 0 -max 1 SZV;
+button -label "设置置换参数" -command "sethight";
+text -label "\n";
+button -label "修复渲染设置窗口" -command "fixRenderSet";
+
+button -label "参考测试灯光" -command "ReTestLight";
+text -label "\n";
+window -e -h 200 -w 300 ArnoldAssistant;
+showWindow ArnoldAssistant;
+
+global proc ARsudvision()//开启细分设置级别。
+{
+    float $ARS=`intSliderGrp -q -v Snmb1`;
+pickWalk -d down;
+string $sel[] = `ls -sl`;
+
+string $moda;
+for($moda in $sel)
+
+{   
+setAttr ($moda+".aiSubdivType") 1;
+
+setAttr ($moda+".aiSubdivIterations") $ARS;
+setAttr ($moda+".aiSubdivUvSmoothing") 2;
+}}
+
+
+global proc fixRenderSet()//修复渲染设置窗口
+{
+    
+deleteUI unifiedRenderGlobalsWindow; 
+
+buildNewSceneUI;  
+}
+
+global proc setMatte()//设置为遮罩。
+{pickWalk -d down;
+string $sel[] = `ls -sl`;
+string $polyname;
+for($polyname in $sel)
+{
+    setAttr ($polyname+".aiMatte") 1;
+}}
+
+
+
+global proc UnsetMatte()//设置为非遮罩。
+{pickWalk -d down;
+string $sel[] = `ls -sl`;
+string $polyname;
+for($polyname in $sel)
+{
+    setAttr ($polyname+".aiMatte") 0;
+}}
+
+
+global proc sethight()//设置置换参数
+{
+    float $Hight=`floatSliderGrp -q -v Hight`;
+    float $SZV=`floatSliderGrp -q -v SZV`;
+pickWalk -d down;
+string $sel[] = `ls -sl`;
+
+string $moda;
+for($moda in $sel)
+
+{   
+setAttr ($moda+".aiDispHeight") $Hight; 
+setAttr ($moda+".aiDispZeroValue") $SZV;     
+setAttr ($moda+".aiDispAutobump") 1;
+}}
+
+global proc ReTestLight()//参考测试灯光
+{file -r 
+     -type "mayaBinary"  
+     -ignoreVersion 
+     -gl 
+     -mergeNamespacesOnClash false 
+     -namespace "model" 
+     -options "v=0;" "F:/Onemt/Marketing/Shared/Character_Model/Light/arnold_light_test.mb";
+     }
+     
+     

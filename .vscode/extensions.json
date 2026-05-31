@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "ms-python.python",           // Python 扩展
+        "ms-python.debugpy",          // Python 调试器
+        "davidwilson.mel",            // MEL 语法支持
+        "yuenm18.ooxml-viewer"        // 可选：二进制文件查看
+    ]
+}

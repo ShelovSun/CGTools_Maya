@@ -1,0 +1,6 @@
+import sys
+sys.path.append(r"Y:\Onemt\Marketing\Shared\Plug-in\DynJointTools")
+
+import DynJointTool
+reload(DynJointTool)
+DynJointTool.main()

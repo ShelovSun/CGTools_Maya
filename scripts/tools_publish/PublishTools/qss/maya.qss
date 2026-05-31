@@ -1,0 +1,34 @@
+
+
+QWidget
+{
+    font-size: 13px;
+}
+
+QListWidget
+{
+	background-color: rgb(40, 41, 43);
+	color: rgb(200, 200, 200);
+}
+
+/*QListWidget::item
+{
+    border-style: solid;
+    border: 1px solid #1e1e1e;
+}*/
+
+QComboBox
+{
+	background-color: rgb(83, 43, 43);
+	color: rgb(200, 200, 200);
+}
+
+QLineEdit
+{
+    background-color: rgb(83, 43, 43);
+	color: rgb(200, 200, 200);
+    padding: 1px;
+    border-style: solid;
+    border: 1px solid #1e1e1e;
+    border-radius: 2;
+}

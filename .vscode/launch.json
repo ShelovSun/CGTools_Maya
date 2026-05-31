@@ -1,0 +1,28 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Maya 2022: Attach Debugger",
+            "type": "python",
+            "request": "attach",
+            "port": 5678,
+            "host": "localhost",
+            "justMyCode": false,
+            "preLaunchTask": "",
+            "postDebugTask": ""
+        },
+        {
+            "name": "Maya 2022: Run with mayapy",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "python": "C:/Program Files/Autodesk/Maya2022/bin/mayapy.exe",
+            "env": {
+                "MAYA_LOCATION": "C:/Program Files/Autodesk/Maya2022",
+                "PYTHONPATH": "${workspaceFolder}/scripts"
+            },
+            "justMyCode": false
+        }
+    ]
+}

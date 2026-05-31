@@ -1,0 +1,22 @@
+新增资产重命名工具；
+ShotsManager 3.0.1: 更新为动作库发布，动作可复用；
+Light Set Tool 3.0.0: 大版本重写；
+AssetsManager 3.0.3: 更新icon动态加载；
+ShotsManager 2.0.3: 更新去除卡号；
+AssetsManager 3.0.2:
+AssetsManager 3.0.1:
+AssetsManager 2.0.3:
+ShotsManager 2.0.2:
+AssetsManager 2.0.2:
+Publish Tool 2.0.1: 大版本重写；
+AssetsManager 2.0.1:
+ShotsManager 2.0.1:
+ShotsManager 1.0.5:
+ShotsManager 1.0.4:
+ShotsManager 1.0.3:
+ShotsManager 1.0.2:
+AssetsManager 1.0.4:
+AssetsManager 1.0.3:
+AssetsManager 1.0.2:
+ShotsManager 1.0.1: 第一次编写；
+AssetsManager 1.0.1: 第一次编写；

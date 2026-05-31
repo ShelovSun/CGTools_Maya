@@ -1,0 +1,53 @@
+
+
+/*QWidget
+{
+    font-size: 13px;
+
+}*/
+
+QListWidget
+{
+	background-color: rgb(40, 41, 43);
+	color: rgb(200, 200, 200);
+	font: 13px "Microsoft YaHei";
+	outline: 0px;
+}
+
+
+/*QListWidget::item
+{
+    border-style: solid;
+    background-color: rgb(50, 51, 53);
+    border: 1px solid #1e1e1e;
+    border-radius: 8px;
+}
+    border-right: 5px solid qlineargradient(spread:pad,x1:0,x2:1,stop:0 rgb(20,20,20),stop:1 rgb(50,50,50));
+    border-bottom: 5px solid qlineargradient(spread:pad,y1:0,y2:1,stop:0 rgb(20,20,20),stop:1 rgb(50,50,50));
+}
+QListWidget::item{
+	padding-top:1px;
+	color:rgba(121,112,52,1);
+   	margin-left:40px;
+}
+
+QListWidget::item:selected:!active
+{
+    border-width:0px;
+}*/
+
+QComboBox
+{
+	background-color: rgb(43, 43, 43);
+	color: rgb(200, 200, 200);
+}
+
+QLineEdit
+{
+    background-color: rgb(43, 43, 43);
+	color: rgb(200, 200, 200);
+    padding: 1px;
+    border-style: solid;
+    border: 1px solid #1e1e1e;
+    border-radius: 2;
+}

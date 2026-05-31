@@ -1,0 +1,56 @@
+{
+    "diffuse": [
+        "diffuse",
+        "color",
+        "albedo"
+    ],
+    "ao": [
+        "ambient",
+        "ao",
+        "occlusion"
+    ],
+    "reflection": [
+        "reflection",
+        "refl",
+        "specular"
+    ],
+    "roughness": [
+        "roughness",
+        "ruff",
+        "gloss",
+        "glossiness"
+    ],
+    "metalness": [
+        "metal",
+        "metalness"
+    ],
+    "refraction": [
+        "refraction",
+        "refr"
+    ],
+    "subsurface": [
+        "sss",
+        "subsurface"
+    ],
+    "bump": [
+        "bump",
+        "height"
+    ],
+    "normal": [
+        "normal",
+        "norm"
+    ],
+    "displacement": [
+        "displacement",
+        "disp"
+    ],
+    "emission": [
+        "emission",
+        "emissive"
+    ],
+    "opacity": [
+        "opacity",
+        "alpha",
+        "cutout"
+    ]
+}

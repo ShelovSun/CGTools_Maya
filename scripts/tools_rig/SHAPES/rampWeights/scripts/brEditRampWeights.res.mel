@@ -1,0 +1,87 @@
+// ---------------------------------------------------------------------
+// brEditRampWeights.res.mel
+// ---------------------------------------------------------------------
+
+displayString -replace
+              -value "Axis of the ramp direction."
+              m_brEditRampWeights.kAxis;
+
+displayString -replace
+              -value ("Centers the midpoint of the ramp. Set Range Start to 0 and use Range End " +
+                      "to control the width.")
+              m_brEditRampWeights.kCentered;
+
+displayString -replace
+              -value "Prevents the blend start to cross the symmetry axis when mirroring."
+              m_brEditRampWeights.kClamp;
+
+displayString -replace
+              -value "Invert the weight values."
+              m_brEditRampWeights.kInvert;
+
+displayString -replace
+              -value "Mirror across the current axis."
+              m_brEditRampWeights.kMirror;
+
+displayString -replace
+              -value "Reposition the range of the blend by shifting the start and end values."
+              m_brEditRampWeights.kOffset;
+
+displayString -replace
+              -value "Apply the default settings."
+              m_brEditRampWeights.kPresetDefault;
+
+displayString -replace
+              -value ("Create a centered effect. Use Range End to define the width and Offset " +
+                      "to position.")
+              m_brEditRampWeights.kPresetCentered;
+
+displayString -replace
+              -value "Create a mirrored effect to either side of the current axis."
+              m_brEditRampWeights.kPresetMirrored;
+
+displayString -replace
+              -value "Start position of the blend along the current axis."
+              m_brEditRampWeights.kRangeStart;
+
+displayString -replace
+              -value "End position of the blend along the current axis."
+              m_brEditRampWeights.kRangeEnd;
+
+displayString -replace
+              -value ("Create a transform to control the position of the ramp. " +
+                      "When connected this button selects the transform. RMB for additional " +
+                      "options.")
+              m_brEditRampWeights.kTransform;
+
+displayString -replace
+              -value "Activate to have the transformation affect the position the ramp."
+              m_brEditRampWeights.kUseTransform;
+
+// ---------------------------------------------------------------------
+// MIT License
+//
+// Copyright (c) 2019 Ingo Clemens, brave rabbit
+// rampWeights and weightsServer are under the terms of the MIT License
+//
+// Permission is hereby granted, free of charge, to any person obtaining
+// a copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to
+// permit persons to whom the Software is furnished to do so, subject to
+// the following conditions:
+//
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+// SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+//
+// Author: Ingo Clemens    www.braverabbit.com
+// ---------------------------------------------------------------------

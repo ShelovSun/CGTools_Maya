@@ -1,0 +1,48 @@
+////////////////////////////////////////////////////////////////////////////////
+//
+// How To:
+//      Drag and drop this file into the Maya viewport to create a shelf button
+//
+////////////////////////////////////////////////////////////////////////////////
+{
+    //get install.mel location
+    string $umbBase = `installScriptLocation`;
+    python ("import sys");
+    string $pyPaths[] = python ("sys.path");
+    string $umbPython = $umbBase;
+    if ( stringArrayCount ($umbPython, $pyPaths) == 0 ) {
+        //add library python path to PYTHONPATH
+        python ("sys.path.insert(0, '" + $umbPython + "')") ;
+    }
+
+    //write python command for the shelf button
+    string $shelfButtonCmd = "\
+import os\n\
+import sys\n\
+\n\
+umbBase = \"" + $umbBase + "\"\n\
+\n\
+if umbBase not in sys.path:\n\
+    sys.path.append(umbBase)\n\
+\n\
+import main as umb\n\
+\n\
+\n\
+umb.openUI()\n\
+";
+
+    //get current shelf and create a new button
+    global string $gShelfTopLevel;
+    string $currentShelf = `tabLayout -q -selectTab $gShelfTopLevel`;
+    string $shelfButtonIcon = $umbBase + "/icons/logo.png";
+    shelfButton -i1 $shelfButtonIcon -c $shelfButtonCmd -stp "python" -l "Launch UMB" -ann "Launch the UMB window" -p $currentShelf;
+
+
+    global proc string installScriptLocation () {
+        // $whatIs "Mel procedure found in: C:/Users/...."
+        string $whatIs=`whatIs installScriptLocation`;
+        string $fullPath=`substring $whatIs 25 999`;
+        string $scriptLocation=dirname( $fullPath ) ;
+        return $scriptLocation;
+    }
+}

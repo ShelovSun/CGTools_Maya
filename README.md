@@ -1,0 +1,2 @@
+# CGTools_Maya
+这是新的maya2022点CGtools插件包

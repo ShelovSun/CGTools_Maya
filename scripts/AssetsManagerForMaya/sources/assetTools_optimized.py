@@ -35,7 +35,8 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     scriptsPath = os.path.split(os.path.realpath(__file__))[0].replace('\\', '/').replace('sources', '')
 
-    def __init__(self, user="", password=""):
+    def __init__(self, user="", password="", **kwargs):
+        # **kwargs 兼容旧调用点（如 toolSetting 里传 isCGTW=/ROOT=），避免参数不符报错
         super(AssetToolsUI, self).__init__()
 
         self.mayaMainWindow = maya_main_window()
@@ -58,7 +59,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.isAction = False
         self.isAttributeShow = True
         self.currentAssetData = {}
-        self.ROOT = "Y:/MCCProject"
+        self.ROOT = kwargs.get("ROOT") or "Y:/MCCProject"
         self.progress = 0
         self.file_type_expanded = True
         self.switch_expanded = True
@@ -319,6 +320,9 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def _onQueryFinished(self, total):
         """查询完成"""
+        # 把完整数据交给视图，使图标/列表模式切换、关键字过滤可基于缓存重建
+        # （流式加载是逐批 addItem 进视图的，视图内部的 _items_list 此前为空）
+        self.ui_main_wgt.setItemsList(self._asset_cache)
         self.ui_main_wgt.resizeItem()
         self.infoMsg("info", f"加载到{total}个资产")
 

@@ -36,10 +36,12 @@ class ItemDelegate(QtWidgets.QStyledItemDelegate):
         item = self._list_view.itemFromIndex(index) if self._list_view else None
 
         if isinstance(item, ListItemOptimized):
-            # 检查是否需要加载缩略图
-            if not item.isThumbnailLoaded() and not item.isLoaded():
+            # 检查是否需要加载缩略图。
+            # 注意：不再在此处 setLoaded(True)——那会在真实图到达前就谎称“已加载”，
+            # 一旦该请求随后被取消，条目会卡在“已加载但无图”状态、永远显示默认图。
+            # 改为只在“未加载且未在加载中”时触发；真正的 loaded 由回调置位。
+            if not item.isThumbnailLoaded() and not item.isThumbnailLoading():
                 item.loadThumbnail()
-                item.setLoaded(True)
             item.paint(painter, option, index)
         else:
             super(ItemDelegate, self).paint(painter, option, index)
@@ -240,31 +242,90 @@ class ListView(QtWidgets.QListView):
         """安排加载可见 items"""
         self._load_timer.start(self._loading_delay)
 
+    def _visibleRowRange(self):
+        """计算当前 viewport 中可见 item 的行号区间 [start, end]（含端点）。
+
+        IconMode 下 indexAt 取角点时，角点常落在 item 之间的 spacing 间隙而返回
+        无效索引。**关键约束**：该区间会被 cancelPathsExcept 当作“保留区”，区间外
+        的加载请求会被取消——所以宁可多算（多保留几行），绝不能少算，否则真正可见
+        的条目会被误取消、永远停在默认图（之前滚到底部只刷出第一行就是这个原因）。
+
+        做法：沿顶边、底边各取多个采样点 indexAt，避开 spacing 间隙；采样全落空时
+        用网格尺寸估算一屏的行数做**有界**回退（绝不直接回退到列表末尾，以免又把整
+        条尾巴全部入队）。
+        """
+        row_count = self._model.rowCount()
+        if row_count == 0:
+            return 0, -1
+
+        vp = self.viewport().rect()
+        xs = [vp.left() + 2, vp.center().x(), vp.right() - 2]
+        offsets = (2, self._spacing + 4)  # 紧贴边缘的点易落在间隙，再向内采一点
+
+        top_rows = []
+        bottom_rows = []
+        for x in xs:
+            for dy in offsets:
+                ti = self.indexAt(QtCore.QPoint(x, vp.top() + dy))
+                if ti.isValid():
+                    top_rows.append(ti.row())
+                bi = self.indexAt(QtCore.QPoint(x, vp.bottom() - dy))
+                if bi.isValid():
+                    bottom_rows.append(bi.row())
+
+        start = min(top_rows) if top_rows else 0
+
+        if bottom_rows:
+            end = max(bottom_rows)
+        else:
+            # 底边全落空：可能滚到最底或列表没占满一屏。用网格估算一屏行数做有界回退，
+            # 而不是跳到 rowCount-1（那会把整条尾巴重新入队，退回老问题）。
+            grid = self.gridSize()
+            gw = grid.width() if grid.width() > 0 else (self._item_size + self._spacing)
+            gh = grid.height() if grid.height() > 0 else (self._item_size + self._spacing + 40)
+            cols = max(1, vp.width() // gw)
+            rows_per_screen = vp.height() // gh + 2
+            end = min(row_count - 1, start + cols * rows_per_screen)
+
+        if end < start:
+            start, end = end, start
+        return start, end
+
     def _loadVisibleItems(self):
-        """加载可见区域的 items"""
-        viewport_rect = self.viewport().rect()
+        """加载可见区域的 items，并取消可见区之外的排队请求。"""
+        row_count = self._model.rowCount()
+        if row_count == 0:
+            return
 
-        # 获取可见区域的索引范围
-        start_index = self.indexAt(viewport_rect.topLeft()).row()
-        end_index = self.indexAt(viewport_rect.bottomRight()).row()
+        start_index, end_index = self._visibleRowRange()
 
-        if start_index < 0:
-            start_index = 0
-        if end_index < 0:
-            end_index = self._model.rowCount() - 1
-
-        # 扩展预加载范围
+        # 扩展预加载范围（上下各预读半批）
         preload_range = self._loading_batch_size // 2
         start_index = max(0, start_index - preload_range)
-        end_index = min(self._model.rowCount() - 1, end_index + preload_range)
+        end_index = min(row_count - 1, end_index + preload_range)
 
-        # 加载可见区域的 items
+        # 收集可见区（含预读）的条目与缩略图路径
+        visible_items = []
+        keep_paths = set()
         for row in range(start_index, end_index + 1):
-            index = self._model.index(row, 0)
-            item = self.itemFromIndex(index)
+            item = self.itemFromIndex(self._model.index(row, 0))
+            if isinstance(item, ListItemOptimized):
+                visible_items.append(item)
+                path = item.thumbnailPath()
+                if path:
+                    keep_paths.add(path)
 
-            if isinstance(item, ListItemOptimized) and not item.isThumbnailLoaded():
-                item.loadThumbnail()
+        # 取消可见区之外仍在排队的加载，让线程池立刻处理可见区
+        # （被取消的 worker 会在 run() 开头即返回，几微秒内腾出线程）。
+        self._thumbnail_loader.cancelPathsExcept(keep_paths)
+
+        # 加载可见区条目；对此前被取消、卡在“加载中”状态的条目先复位再请求。
+        for item in visible_items:
+            if item.isThumbnailLoaded():
+                continue
+            if item.isThumbnailLoading() and not self._thumbnail_loader.isPending(item.thumbnailPath()):
+                item.resetThumbnail()  # 之前的请求已被取消，允许重新加载
+            item.loadThumbnail()
 
     def mouseMoveEvent(self, event):
         """鼠标移动事件"""

@@ -40,6 +40,9 @@ class MainStackedWidget(QtWidgets.QStackedWidget):
         # 连接信号
         self._items_widget.itemSelectionChanged.connect(self.itemSelectionChanged.emit)
         self._items_widget.dragLeaveSignal.connect(self.dragLeaveSignal.emit)
+        # 右键菜单上抛：子视图 -> ItemsWidget -> MainStackedWidget
+        # （QStackedWidget 从 QWidget 继承了 customContextMenuRequested 信号）
+        self._items_widget.customContextMenuRequested.connect(self.customContextMenuRequested)
 
         # 设置当前视图模式
         self._items_widget.setIsList(islist)

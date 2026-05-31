@@ -19,15 +19,8 @@ from my_vendor.Qt import QtCore
 from my_vendor.Qt import QtGui
 from my_vendor.Qt import QtWidgets
 from shiboken2 import wrapInstance
-from sources import assetTools, sceneTools#, actionTools, ShotsManager_Maya, rigTools, modTools#, xgenTools#, list_items
+from sources import assetTools_optimized as assetTools, sceneTools#, actionTools, ShotsManager_Maya, rigTools, modTools#, xgenTools#, list_items
 from utils import jsonHelper
-# from scripts.for_Maya.AssetsManagerForMaya.widgets.old import myWidget
-
-# import importlib
-# importlib.reload(ShotsManager_Maya)
-# importlib.reload(actionTools)
-# importlib.reload(sceneTools)
-# importlib.reload(modTools)
 
 
 def maya_main_window():
@@ -36,6 +29,7 @@ def maya_main_window():
 
 
 _mayaCloseScriptJob = None
+win = None  # 当前活动的窗口实例，供 mayaClosedEvent 在 Maya 退出时保存设置
 
 
 def enableMayaClosedEvent():
@@ -65,10 +59,18 @@ def disableMayaClosedEvent():
 
 def mayaClosedEvent():
     """
+    Maya 退出时触发：保存当前活动窗口的设置。
+    注意要保存的是已存在的实例 win，而不是 AssetsManagerUI() 新建的临时实例
+    （新建实例保存的是默认状态，等于没保存）。
     :rtype: None
     """
     print("close")
-    AssetsManagerUI().rememberSettings()
+    global win
+    try:
+        if win is not None:
+            win.rememberSettings()
+    except Exception as e:
+        print(e)
 
 
 class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
@@ -745,30 +747,47 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     def destroy(self):
         print("destroy")
 
-    # def show(self, **kwargs):
-    #     print("====show=====")
-    #     dockable = kwargs.get('dockable', False)
-    #     MayaQWidgetDockableMixin.show(self, dockable=dockable) #设置dockable=True则closeEvent失去作用，没有解决暂停
-    #     # self.raise_()
-    #     print(self.workspaceControlName())
+    def show(self, **kwargs):
+        """
+        以可停靠窗口方式显示（仿 StudioLibrary.MayaLibraryWindow.show）。
+        默认 dockable=True，这样才会创建 workspaceControl、窗口才能停靠；
+        传 dockable=False 可显示为浮动独立窗口。
+
+        关于 closeEvent：dockable=True 时窗口被挂到 workspaceControl 下，
+        关闭走的是 workspaceControl，QMainWindow.closeEvent 不一定触发，
+        因此保存设置改由 Maya 退出事件 mayaClosedEvent (scriptJob) 负责。
+        """
+        dockable = kwargs.get('dockable', True)
+        MayaQWidgetDockableMixin.show(self, dockable=dockable)
+        self.raise_()
 
 
 def showWindow():
     global win
+
+    # 先记下上一个实例的 workspaceControl 名字（窗口设了 WA_DeleteOnClose，
+    # close 之后 C++ 对象可能已销毁，再去查名字会抛 RuntimeError，所以先取）。
+    old_wsc = None
+    try:
+        old_wsc = win.workspaceControlName()
+    except Exception:
+        pass
+
     try:
         win.close()
-    except:
+    except Exception:
         pass
+
+    # 清理残留的 workspaceControl，避免每次重开都堆积一个空的停靠控件。
+    try:
+        if old_wsc and cmds.workspaceControl(old_wsc, q=True, exists=True):
+            cmds.deleteUI(old_wsc)
+    except Exception:
+        pass
+
+    # 注册 Maya 退出事件，停靠模式下用它来保存设置（closeEvent 不可靠）。
+    enableMayaClosedEvent()
 
     win = AssetsManagerUI()
     win.setAttribute(QtCore.Qt.WA_DeleteOnClose)
-    # win.show(dockable=True)#,width=950,height=600,y=10,x=10)
-    win.show()
-    # win.destroy()
-    # cmds.workspaceControl(win.workspaceControlName(), e=1, cc='win.destroy()')
-
-    # print(AssetsManager_UI().objectName())
-
-    # cmds.workspaceControl("assetsManager", q=True, floating=True)
-
-    # cmds.workspaceControl("assetsManagerWorkspaceControl", retain=False, floating=True, uiScript="AssetsManager_UI().show()")
+    win.show(dockable=True)

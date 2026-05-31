@@ -162,15 +162,16 @@ class TableWidget(QtWidgets.QTableWidget):
             self.sortItems(0, QtCore.Qt.DescendingOrder)
 
     def selectedItems(self):
-        """获取选中的 items"""
+        """获取选中的 items（每行返回第 0 列的 item，保证带完整 itemData）"""
         items = super(TableWidget, self).selectedItems()
-        # 去重，每行只保留第一个
         seen_rows = set()
         unique_items = []
         for item in items:
-            if item.row() not in seen_rows:
-                seen_rows.add(item.row())
-                unique_items.append(item)
+            row = item.row()
+            if row not in seen_rows:
+                seen_rows.add(row)
+                col0 = self.item(row, 0)
+                unique_items.append(col0 if col0 is not None else item)
         return unique_items
 
     def currentAsset(self):
@@ -222,6 +223,7 @@ class ItemsWidget(QtWidgets.QWidget):
         self._item_size = 120
         self._items_list = []
         self._view_mode = self.IconMode
+        self._external_items_widget = None  # 外部控制器引用(AssetToolsUI)
 
         # 创建子组件
         self._list_view = ListView(self)
@@ -233,6 +235,13 @@ class ItemsWidget(QtWidgets.QWidget):
         self._table_widget.setObjectName("tableWidget")
         self._table_widget.itemSelectionChanged.connect(self._onSelectionChanged)
         self._table_widget.dragLeaveSignal.connect(self.dragLeaveSignal.emit)
+
+        # 右键菜单：两个子视图都启用自定义右键，并把信号上抛到 ItemsWidget
+        # （QListView / QTableWidget 都从 QWidget 继承了 customContextMenuRequested 信号）
+        self._list_view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self._table_widget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self._list_view.customContextMenuRequested.connect(self.customContextMenuRequested)
+        self._table_widget.customContextMenuRequested.connect(self.customContextMenuRequested)
 
         # 布局
         layout = QtWidgets.QStackedLayout(self)
@@ -358,17 +367,30 @@ class ItemsWidget(QtWidgets.QWidget):
         """选择改变"""
         self.itemSelectionChanged.emit()
 
+    def setItemsWidget(self, widget):
+        """保存外部控制器(AssetToolsUI)引用，并转发给支持该接口的子视图（兼容旧接口）。"""
+        self._external_items_widget = widget
+        for view in (self._list_view, self._table_widget):
+            if hasattr(view, "setItemsWidget"):
+                view.setItemsWidget(widget)
+
+    def itemsWidget(self):
+        """返回外部控制器引用。"""
+        return self._external_items_widget
+
     def setIconMode(self, item_size, keywords=None):
         """设置为图标模式"""
         self._item_size = item_size
         self.setViewMode(self.IconMode)
         self._list_view.setItemSize(item_size)
-        self._list_view.addItems(keywords[0] if keywords else "")
+        keyword = keywords[0] if keywords and len(keywords) > 0 else ""
+        self._list_view.addItems(keyword)
 
     def setListMode(self, keywords=None):
         """设置为列表模式"""
         self.setViewMode(self.TableMode)
-        self._table_widget.addItems(keywords[0] if keywords else "")
+        keyword = keywords[0] if keywords and len(keywords) > 0 else ""
+        self._table_widget.addItems(keyword)
 
     def verticalScrollBar(self):
         """获取垂直滚动条"""

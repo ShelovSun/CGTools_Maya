@@ -69,9 +69,15 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         self._image_sequence = None
         self._image_sequence_path = ""
 
-        # 连接缩略图加载信号
+        # 当前绘制矩形（paint() 中经 setRect 赋值；预置以防鼠标事件早于首次绘制）
+        self._rect = None
+
+        # 缩略图加载器（单例）。
+        # 注意：不再让每个 item 都 connect 全局 thumbnailLoaded 信号——
+        # 否则 N 个 item 会被 N 次加载各触发一次，形成 O(N^2) 信号风暴；
+        # 且 item 是 QListWidgetItem（非 QObject），常驻连接会让其无法回收、跨刷新持续累积。
+        # 改为按路径回调（见 loadThumbnail 传入的 callback）。
         self._loader = ThumbnailLoader.instance()
-        self._loader.thumbnailLoaded.connect(self._onThumbnailLoaded)
 
     def __del__(self):
         """析构时停止图片序列"""
@@ -131,26 +137,51 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
             self._thumbnail_pixmap = cached
             self._thumbnail_loaded = True
             self._thumbnail_loading = False
-            if self._items_widget:
-                self._items_widget.update()
+            self._repaintHost()
         else:
             # 设置默认图标
             self._thumbnail_pixmap = QtGui.QPixmap(self._getDefaultThumbnailPath())
-            # 异步加载真实图片
-            self._loader.loadThumbnail(self._thumbnail_path, self._thumbnail_size)
+            # 异步加载真实图片，仅通过按路径回调通知本 item（避免全局信号风暴）
+            self._loader.loadThumbnail(self._thumbnail_path, self._thumbnail_size,
+                                       self._onThumbnailLoaded)
+
+    def _repaintHost(self):
+        """触发宿主视图重绘。
+        QAbstractItemView 的条目画在 viewport 上，直接对 view 调 update() 不会刷新条目，
+        必须刷新 viewport——否则异步缩略图到达后图标不会立即显示，需手动滚动才会重绘。
+        """
+        w = self._items_widget
+        if not w:
+            return
+        try:
+            target = w.viewport() if hasattr(w, "viewport") else w
+            target.update()
+        except RuntimeError:
+            # 视图可能已销毁（窗口关闭后回调晚到），忽略
+            pass
 
     def _onThumbnailLoaded(self, path, pixmap):
-        """缩略图加载完成回调"""
+        """缩略图加载完成回调（由 ThumbnailLoader 按路径回调，主线程执行）"""
         if path == self._thumbnail_path:
             self._thumbnail_pixmap = pixmap
             self._thumbnail_loaded = True
             self._thumbnail_loading = False
-            if self._items_widget:
-                self._items_widget.update()
+            self._repaintHost()
 
     def isThumbnailLoaded(self):
         """缩略图是否已加载"""
         return self._thumbnail_loaded
+
+    def isThumbnailLoading(self):
+        """缩略图是否正在加载（请求已提交但未完成）。"""
+        return self._thumbnail_loading
+
+    def resetThumbnail(self):
+        """复位加载状态，使条目可被重新请求。
+        用于：之前的请求被 cancelPathsExcept 取消后，滚回该区域时能重新加载。
+        """
+        self._thumbnail_loaded = False
+        self._thumbnail_loading = False
 
     def setLoaded(self, value):
         """设置加载状态"""
@@ -171,7 +202,7 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         self._is_tag = bool(tag)
 
     def isTag(self):
-        return self._is_favor
+        return self._is_tag
 
     def _getDefaultThumbnailPath(self):
         """获取默认缩略图路径"""
@@ -419,6 +450,17 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         self._sliderEvent(event)
         self._imageSequenceEvent(event)
 
+    def mousePressEvent(self, event):
+        """鼠标按下（由 ListView.mousePressEvent 转发）。滑块启用时记录起点。"""
+        if self._slider_enabled:
+            self.setSliderDown(True)
+            self._slider_position = event.pos()
+
+    def mouseReleaseEvent(self, event):
+        """鼠标释放（由 ListView.mouseReleaseEvent 转发）。"""
+        if self._slider_enabled:
+            self.setSliderDown(False)
+
     # 图片序列支持
     def setImageSequencePath(self, path):
         """设置图片序列路径"""
@@ -462,8 +504,7 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
             pixmap = self._image_sequence.currentPixmap()
             if pixmap and not pixmap.isNull():
                 self._thumbnail_pixmap = pixmap
-                if self._items_widget:
-                    self._items_widget.update()
+                self._repaintHost()
 
     def _imageSequenceEvent(self, event):
         """图片序列事件处理"""

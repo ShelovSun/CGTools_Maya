@@ -18,7 +18,7 @@ from shiboken2 import wrapInstance
 from config import projectSetting, SMConfig
 from utils import jsonHelper, publish, messageBox
 from utils.am_database import AssetDatabaseManager
-from widgets import am_main_optimized, faverWidget, previewWidget, am_pixmap
+from widgets import am_main_optimized, faverWidget, previewWidget, previewGLWidget, am_pixmap
 
 
 def maya_main_window():
@@ -154,7 +154,9 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.ui.favor_bttn.clicked.connect(self.addFavor)
         self.ui.tag_bttn.setIcon(QtGui.QIcon('%s/icon/unTag.png' % self.scriptsPath))
         self.ui.tag_bttn.clicked.connect(self.addTagUI)
-        self.ui.preview = previewWidget.PreviewWidget()
+        # FBX 三维预览(纯 Python 解析 + 自写 OpenGL,完全不碰 Maya 场景)。
+        # 回退:改回 previewWidget.PreviewWidget() 即恢复原 icon 图片预览。
+        self.ui.preview = previewGLWidget.PreviewGLWidget()
         self.ui.preview_vLayout.addWidget(self.ui.preview)
         self.ui.preview.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.ui.preview.customContextMenuRequested.connect(self.show_menu_Preview_label)

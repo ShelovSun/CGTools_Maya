@@ -36,12 +36,12 @@ class ItemDelegate(QtWidgets.QStyledItemDelegate):
         item = self._list_view.itemFromIndex(index) if self._list_view else None
 
         if isinstance(item, ListItemOptimized):
-            # 检查是否需要加载缩略图。
-            # 注意：不再在此处 setLoaded(True)——那会在真实图到达前就谎称“已加载”，
-            # 一旦该请求随后被取消，条目会卡在“已加载但无图”状态、永远显示默认图。
-            # 改为只在“未加载且未在加载中”时触发；真正的 loaded 由回调置位。
-            if not item.isThumbnailLoaded() and not item.isThumbnailLoading():
-                item.loadThumbnail()
+            # 关键：不在 paint 里触发 loadThumbnail。
+            # 拖动滚动条/滚轮时 paint 会为每个一闪而过的条目反复调用，若在此处发起加载，
+            # 就会在 UI 线程的绘制循环里创建 worker、连接信号、提交线程池，并向服务器发出
+            # 大量随即又被取消的请求——这正是工具放到网络盘后拖动/滚轮卡顿的主因。
+            # 加载统一交给滚动停顿后的 _loadVisibleItems（带可见区计算 + 取消机制），
+            # paint 只负责绘制当前已有的 pixmap（未加载时是共享默认图）。
             item.paint(painter, option, index)
         else:
             super(ItemDelegate, self).paint(painter, option, index)

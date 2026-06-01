@@ -31,6 +31,11 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
     # 类型图标缓存
     _status_icons = {}
 
+    # 共享的默认缩略图 pixmap，只从磁盘/网络读取一次后全局复用（见 _getDefaultPixmap）
+    _default_pixmap = None
+    # 文字字体，避免每帧 paint 重建（见 _getTextFont）
+    _text_font = None
+
     def __init__(self, parent=None, tab="Asset"):
         super(ListItemOptimized, self).__init__(parent)
 
@@ -41,6 +46,15 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         self._thumbnail_loaded = False
         self._thumbnail_loading = False
         self._thumbnail_size = 120
+
+        # 缩放结果缓存：滚动时 paint 每帧都会缩放，缓存避免重复 SmoothTransformation。
+        # key = (源图 cacheKey, 目标宽, 目标高)，源图或尺寸变了才重新缩放。
+        self._pixmap_scaled = None
+        self._pixmap_scaled_key = None
+
+        # 背景渐变与边框画笔缓存，避免每帧 paint 重建（见 _backgroundGradient/_borderPen）
+        self._gradient_cache = {}
+        self._border_pen = None
 
         self._is_favor = False
         self._is_tag = False
@@ -139,8 +153,8 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
             self._thumbnail_loading = False
             self._repaintHost()
         else:
-            # 设置默认图标
-            self._thumbnail_pixmap = QtGui.QPixmap(self._getDefaultThumbnailPath())
+            # 设置默认图标（复用共享 pixmap，不再每个 item 同步读网络文件）
+            self._thumbnail_pixmap = self._getDefaultPixmap()
             # 异步加载真实图片，仅通过按路径回调通知本 item（避免全局信号风暴）
             self._loader.loadThumbnail(self._thumbnail_path, self._thumbnail_size,
                                        self._onThumbnailLoaded)
@@ -204,14 +218,35 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
     def isTag(self):
         return self._is_tag
 
-    def _getDefaultThumbnailPath(self):
+    @classmethod
+    def _getDefaultThumbnailPath(cls):
         """获取默认缩略图路径"""
-        if ListItemOptimized.DEFAULT_THUMBNAIL_PATH is None:
+        if cls.DEFAULT_THUMBNAIL_PATH is None:
             scripts_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            ListItemOptimized.DEFAULT_THUMBNAIL_PATH = os.path.join(
+            cls.DEFAULT_THUMBNAIL_PATH = os.path.join(
                 scripts_path, "icon", "blank_ch.png"
             ).replace("\\", "/")
-        return ListItemOptimized.DEFAULT_THUMBNAIL_PATH
+        return cls.DEFAULT_THUMBNAIL_PATH
+
+    @classmethod
+    def _getDefaultPixmap(cls):
+        """返回共享的默认缩略图 pixmap，只从磁盘/网络读取一次后全局复用。
+
+        之前每个 item 都在 loadThumbnail/_paintIcon 里 QPixmap(path) 各读一次默认图；
+        工具放到网络盘后，这会在 UI 线程上对同一张 blank_ch.png 反复发起同步网络读取，
+        是滚动卡顿的主因之一。改为类级别只读一次。QPixmap 隐式共享且此处只读不改，
+        多个 item 共用同一份安全。
+        """
+        if cls._default_pixmap is None:
+            cls._default_pixmap = QtGui.QPixmap(cls._getDefaultThumbnailPath())
+        return cls._default_pixmap
+
+    @classmethod
+    def _getTextFont(cls):
+        """返回共享的文字字体，避免每帧 paint 重建 QFont。"""
+        if cls._text_font is None:
+            cls._text_font = QtGui.QFont(u"Microsoft YaHei UI", 10)
+        return cls._text_font
 
     def sizeHint(self):
         """返回 item 尺寸"""
@@ -250,31 +285,31 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         is_selected = option.state & QtWidgets.QStyle.State_Selected
         is_mouse_over = option.state & QtWidgets.QStyle.State_MouseOver
 
-        painter.setPen(QtGui.QPen(QtCore.Qt.NoPen))
+        painter.setPen(QtCore.Qt.NoPen)
 
         rect = self._visualRect(option)
 
         if is_selected:
-            gradient = self._backgroundSelectedColor(rect)
+            gradient = self._backgroundGradient("selected")
         elif is_mouse_over:
-            gradient = self._backgroundHoverColor(rect)
+            gradient = self._backgroundGradient("hover")
         else:
-            gradient = self._backgroundColor(rect)
+            gradient = self._backgroundGradient("normal")
 
         painter.setBrush(QtGui.QBrush(gradient))
         painter.drawRect(rect)
 
         # 绘制边框
         if is_selected:
-            painter.setPen(QtGui.QPen(self._selected_color, self._border_size))
+            painter.setPen(self._borderPen())
             painter.setBrush(QtCore.Qt.NoBrush)
             painter.drawRect(rect.adjusted(1, 1, -1, -1))
 
     def _paintIcon(self, painter, option):
         """绘制图标"""
         if self._thumbnail_pixmap is None or self._thumbnail_pixmap.isNull():
-            # 使用默认图标
-            self._thumbnail_pixmap = QtGui.QPixmap(self._getDefaultThumbnailPath())
+            # 使用默认图标（共享 pixmap，避免在绘制路径同步读网络文件）
+            self._thumbnail_pixmap = self._getDefaultPixmap()
 
         rect = self._iconRect(option)
         pixmap = self._scalePixmap(self._thumbnail_pixmap, rect)
@@ -308,7 +343,8 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         painter.setPen(QtGui.QPen(color))
         # 文字字体与窗体一致，使用微软雅黑（同 UI 的 "Microsoft YaHei UI" 10pt、
         # TableWidget 的字体）。默认 painter 字体随系统/Qt 主题变化，显式指定保持统一。
-        painter.setFont(QtGui.QFont(u"Microsoft YaHei UI", 10))
+        # 字体对象共享缓存，避免每帧重建（见 _getTextFont）。
+        painter.setFont(self._getTextFont())
 
         # 绘制名称和中文名
         name = self.name()
@@ -380,36 +416,40 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
 
             painter.drawRect(rect.x(), y, width, height)
 
-    def _backgroundColor(self, rect):
-        """普通背景渐变"""
-        gradient = QtGui.QLinearGradient(
-            QtCore.QPointF(0, rect.y()),
-            QtCore.QPointF(0, rect.y() + rect.height())
-        )
-        gradient.setColorAt(0, QtGui.QColor(35, 35, 35, 255))
-        gradient.setColorAt(self.iconPercent(), QtGui.QColor(60, 62, 64, 255))
-        gradient.setColorAt(self.iconPercent() + 0.01, self._default_text_bg_color)
+    def _backgroundGradient(self, kind):
+        """返回按状态(kind)缓存的竖向背景渐变。
+
+        渐变用 ObjectBoundingMode（坐标 0..1 映射到被绘制矩形的包围盒），因此与条目
+        当前的 y 坐标无关——滚动时同一个渐变可在任意位置复用，无需每帧按 rect.y() 重建。
+        仅当 kind 或 iconPercent（随条目尺寸变化）改变时才重新构造。
+        """
+        percent = self.iconPercent()
+        key = (kind, percent)
+        gradient = self._gradient_cache.get(key)
+        if gradient is not None:
+            return gradient
+
+        gradient = QtGui.QLinearGradient(0, 0, 0, 1)
+        gradient.setCoordinateMode(QtGui.QGradient.ObjectBoundingMode)
+        if kind == "selected":
+            gradient.setColorAt(percent, QtGui.QColor(65, 69, 75, 255))
+            gradient.setColorAt(percent + 0.01, self._selected_color)
+        elif kind == "hover":
+            gradient.setColorAt(percent, QtGui.QColor(62, 64, 66, 255))
+            gradient.setColorAt(percent + 0.01, self._hover_color)
+        else:  # normal
+            gradient.setColorAt(0, QtGui.QColor(35, 35, 35, 255))
+            gradient.setColorAt(percent, QtGui.QColor(60, 62, 64, 255))
+            gradient.setColorAt(percent + 0.01, self._default_text_bg_color)
+
+        self._gradient_cache[key] = gradient
         return gradient
 
-    def _backgroundHoverColor(self, rect):
-        """悬停背景渐变"""
-        gradient = QtGui.QLinearGradient(
-            QtCore.QPointF(0, rect.y()),
-            QtCore.QPointF(0, rect.y() + rect.height())
-        )
-        gradient.setColorAt(self.iconPercent(), QtGui.QColor(62, 64, 66, 255))
-        gradient.setColorAt(self.iconPercent() + 0.01, self._hover_color)
-        return gradient
-
-    def _backgroundSelectedColor(self, rect):
-        """选中背景渐变"""
-        gradient = QtGui.QLinearGradient(
-            QtCore.QPointF(0, rect.y()),
-            QtCore.QPointF(0, rect.y() + rect.height())
-        )
-        gradient.setColorAt(self.iconPercent(), QtGui.QColor(65, 69, 75, 255))
-        gradient.setColorAt(self.iconPercent() + 0.01, self._selected_color)
-        return gradient
+    def _borderPen(self):
+        """返回选中态边框画笔，缓存避免每帧重建。"""
+        if self._border_pen is None:
+            self._border_pen = QtGui.QPen(self._selected_color, self._border_size)
+        return self._border_pen
 
     def _visualRect(self, option):
         """获取可视矩形"""
@@ -426,16 +466,27 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         return QtCore.QRect(rect.x(), rect.y(), side, side)
 
     def _scalePixmap(self, pixmap, rect):
-        """缩放图片到指定矩形，使用缓存"""
+        """缩放图片到指定矩形，缓存缩放结果。
+
+        滚动时 delegate 对每个可见条目每帧都会调用 paint→_scalePixmap，若每次都做
+        SmoothTransformation 平滑缩放会明显吃 CPU、造成滚轮/拖动卡顿。这里按
+        (源图 cacheKey, 目标宽高) 缓存：源图(默认图→真实图、或 GIF 换帧时 cacheKey 会变)
+        或尺寸变化时才重新缩放，否则直接复用，与旧路径 am_listItem.scalePixmap 一致。
+        """
         if pixmap.isNull():
             return pixmap
 
-        return pixmap.scaled(
-            rect.width(),
-            rect.height(),
-            QtCore.Qt.KeepAspectRatio,
-            QtCore.Qt.SmoothTransformation
-        )
+        key = (pixmap.cacheKey(), rect.width(), rect.height())
+        if self._pixmap_scaled is None or self._pixmap_scaled_key != key:
+            self._pixmap_scaled = pixmap.scaled(
+                rect.width(),
+                rect.height(),
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation
+            )
+            self._pixmap_scaled_key = key
+
+        return self._pixmap_scaled
 
     # 鼠标事件处理
     def mouseEnterEvent(self, event):
@@ -487,8 +538,10 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         if not path:
             return
 
-        # 检查是否是 GIF
-        if os.path.isfile(path) and path.lower().endswith(".gif"):
+        # 检查是否是 GIF。先按扩展名短路，避免对非 GIF 的普通缩略图也做 os.path.isfile——
+        # 在网络盘上 isfile 是一次同步网络 stat，滚动时条目从光标下经过会逐条触发 hover、
+        # 反复 stat，足以造成卡顿。绝大多数缩略图是 jpg/png，扩展名判断会直接短路掉。
+        if path.lower().endswith(".gif") and os.path.isfile(path):
             movie = QtGui.QMovie(path)
             movie.setCacheMode(QtGui.QMovie.CacheAll)
             movie.frameChanged.connect(self._updateFrame)

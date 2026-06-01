@@ -1,24 +1,28 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-fbxMesh —— 纯 Python 解析 FBX(二进制 7.x)几何，供自写 OpenGL 预览使用。
+fbxMesh —— 纯 Python 解析 FBX(二进制 7.x)几何 + 材质,供自写 OpenGL 预览使用。
 
-只用标准库(struct/zlib/array/math)，**不依赖** PySide2 / numpy / Autodesk FBX SDK，
+只用标准库(os/struct/zlib/array/math)，**不依赖** PySide2 / numpy / Autodesk FBX SDK，
 全程在内存里解析，**不向 Maya 场景添加任何东西**。这是 AssetsManager「资产 FBX 三维
 预览」的取数层(见 widgets/previewGLWidget.py)。
 
 read(path) -> MeshData：
-  - 抽取所有 Mesh 几何的顶点/法线，按其所属 Model 的局部变换(Lcl TRS + Geometric*)
-    经 Connections 放置，三角化后合并为一份交错缓冲(position+normal, float32)。
+  - 抽取所有 Mesh 几何的顶点/法线/UV，按其所属 Model 的局部变换(Lcl TRS + Geometric*)
+    经 Connections 放置，三角化后**按材质分组**为若干子网格(submesh)，每个子网格带固有色
+    (DiffuseColor)与可选漫反射贴图路径。合并为一份交错缓冲(pos3+nrm3+uv2, float32)。
+  - 贴图路径在此解析(候选:FBX 内记录路径 / fbx 同目录 / {资产根}/Texture|Textures|Images/)。
+    本模块保持 Qt-free，只回传**文件路径**;QImage 由上层在 worker 线程加载、GUI 线程上传。
   - 解析失败 / 不支持(ASCII FBX、NURBS 等)抛 FbxParseError；上层据此回退显示 icon。
 
-已知简化(M1)：
+已知简化：
   - 只读二进制 FBX(Maya FBXExport 默认即二进制)；ASCII FBX 不支持。
-  - 旋转按 Maya 默认 XYZ 顺序；暂不处理 PreRotation/PostRotation/旋转轴心(M2)。
-  - UV/贴图暂不解析(M1 纯着色)；法线缺失时按面法线平铺(flat)。
+  - 旋转按 Maya 默认 XYZ 顺序；暂不处理 PreRotation/PostRotation/旋转轴心。
+  - 非索引(每三角形 3 个角点)输出 —— 解析快、避免逐角点字典去重的开销(大网格友好)。
   - 假设小端(Windows/Mac x64/ARM 均小端)。
 """
 
+import os
 import struct
 import zlib
 import array
@@ -72,10 +76,7 @@ def _read_property(data, pos):
             raw = zlib.decompress(raw)
         fmt = {'f': 'f', 'd': 'd', 'l': 'q', 'i': 'i', 'b': 'b'}[tc]
         arr = array.array(fmt)
-        try:
-            arr.frombytes(raw)
-        except AttributeError:  # py2 名为 fromstring，本仓 py3.7 用不到，保险
-            arr.fromstring(raw)
+        arr.frombytes(raw)
         return arr, pos
     if tc == 'S' or tc == 'R':
         length = struct.unpack_from("<I", data, pos)[0]
@@ -105,7 +106,6 @@ def _read_node(data, pos, use64):
     for _ in range(num_props):
         val, pos = _read_property(data, pos)
         node.props.append(val)
-    # 子节点：从当前 pos 到 end_offset
     while pos < end_offset:
         child, pos = _read_node(data, pos, use64)
         if child is None:
@@ -170,7 +170,7 @@ def _rotz(d):
 
 
 def _euler_xyz(r):
-    # Maya 默认旋转顺序 XYZ：先绕 X，列向量约定下合成矩阵 = Rz * Ry * Rx
+    # Maya 默认旋转顺序 XYZ：列向量约定下合成矩阵 = Rz * Ry * Rx
     return _matmul(_rotz(r[2]), _matmul(_roty(r[1]), _rotx(r[0])))
 
 
@@ -190,10 +190,10 @@ def _xform_dir(m, x, y, z):
             m[8] * x + m[9] * y + m[10] * z)
 
 
-# --------------------------------------------------------------------------- 变换装配
-def _p70(model, name):
-    """从 Model 的 Properties70 取某属性的数值尾部(如 Lcl Translation -> [x,y,z])。"""
-    p = model.first("Properties70")
+# --------------------------------------------------------------------------- Properties70
+def _p70(node, name):
+    """从某节点的 Properties70 取某属性的数值尾部(如 Lcl Translation -> [x,y,z])。"""
+    p = node.first("Properties70")
     if not p:
         return None
     for c in p.children:
@@ -204,6 +204,7 @@ def _p70(model, name):
     return None
 
 
+# --------------------------------------------------------------------------- 变换装配
 def _model_local(model):
     t = _p70(model, "Lcl Translation") or [0.0, 0.0, 0.0]
     r = _p70(model, "Lcl Rotation") or [0.0, 0.0, 0.0]
@@ -220,55 +221,56 @@ def _geometric(model):
     return _local_matrix(t[:3], (r + [0, 0, 0])[:3], (s + [1, 1, 1])[:3])
 
 
-def _build_transforms(root):
-    """返回 geometryId -> 世界变换矩阵(已含 Geometric)；解析不出则空表(全用单位阵)。"""
+def _scene_ids(root):
+    """收集 Objects 里各类对象 id,以及 Connections 的 OO 关系。"""
     objects = root.first("Objects")
     connections = root.first("Connections")
-    if not objects or not connections:
+    models, geom_ids, mat_ids = {}, set(), set()
+    if objects:
+        for c in objects.children:
+            if not c.props or not isinstance(c.props[0], int):
+                continue
+            oid = c.props[0]
+            if c.name == "Model":
+                models[oid] = c
+            elif c.name == "Geometry":
+                geom_ids.add(oid)
+            elif c.name == "Material":
+                mat_ids.add(oid)
+    oo = []  # (child, parent)
+    if connections:
+        for c in connections.children:
+            if c.name == "C" and len(c.props) >= 3 and c.props[0] == "OO":
+                oo.append((c.props[1], c.props[2]))
+    return models, geom_ids, mat_ids, oo
+
+
+def _build_transforms(root):
+    """geometryId -> 世界变换矩阵(含 Geometric);解析不出则空表(全用单位阵)。"""
+    models, geom_ids, _mat_ids, oo = _scene_ids(root)
+    if not models or not oo:
         return {}
 
-    models = {}        # id -> Model 节点
-    geom_ids = set()   # 所有 Geometry 的 id
-    for c in objects.children:
-        if not c.props:
-            continue
-        oid = c.props[0]
-        if not isinstance(oid, int):
-            continue
-        if c.name == "Model":
-            models[oid] = c
-        elif c.name == "Geometry":
-            geom_ids.add(oid)
+    geom_to_model, model_parent = {}, {}
+    for child, parent in oo:
+        if child in geom_ids and parent in models:
+            geom_to_model[child] = parent
+        elif child in models and parent in models:
+            model_parent[child] = parent
 
-    geom_to_model = {}
-    model_parent = {}
-    for c in connections.children:
-        if c.name != "C" or len(c.props) < 3 or c.props[0] != "OO":
-            continue
-        child_id, parent_id = c.props[1], c.props[2]
-        if child_id in geom_ids and parent_id in models:
-            geom_to_model[child_id] = parent_id
-        elif child_id in models and parent_id in models:
-            model_parent[child_id] = parent_id
-
-    local_cache = {}
-
-    def model_local(mid):
-        if mid not in local_cache:
-            local_cache[mid] = _model_local(models[mid])
-        return local_cache[mid]
-
-    world_cache = {}
+    local_cache, world_cache = {}, {}
 
     def model_world(mid, stack):
         if mid in world_cache:
             return world_cache[mid]
-        if mid in stack:  # 防环
+        if mid in stack:
             return _identity()
         stack.add(mid)
-        loc = model_local(mid)
+        loc = local_cache.get(mid)
+        if loc is None:
+            loc = local_cache[mid] = _model_local(models[mid])
         pid = model_parent.get(mid)
-        w = _matmul(model_world(pid, stack), loc) if (pid in models) else loc
+        w = _matmul(model_world(pid, stack), loc) if pid in models else loc
         stack.discard(mid)
         world_cache[mid] = w
         return w
@@ -284,52 +286,176 @@ def _build_transforms(root):
     return out
 
 
-# --------------------------------------------------------------------------- 法线
-def _normal_indexer(geom):
-    """返回 (normals_array, index(cpi, pvc)->base_or_None) 或 None。"""
-    layer = geom.first("LayerElementNormal")
+# --------------------------------------------------------------------------- 材质 / 贴图
+def _texture_filenames(tex_node):
+    out = []
+    for key in ("RelativeFilename", "FileName", "Filename"):
+        n = tex_node.first(key)
+        if n and n.props and isinstance(n.props[0], str) and n.props[0]:
+            out.append(n.props[0])
+    return out
+
+
+def _resolve_texture(stored_list, fbx_path):
+    if not stored_list:
+        return None
+    fbx_dir = os.path.dirname(fbx_path)
+    root = os.path.dirname(fbx_dir)  # 资产根(fbx 在 .../<asset>/FBX/)
+    cands = []
+    for stored in stored_list:
+        s = stored.replace("\\", "/")
+        base = os.path.basename(s)
+        cands += [s,
+                  os.path.join(fbx_dir, s),
+                  os.path.join(fbx_dir, base),
+                  os.path.join(root, "Texture", base),
+                  os.path.join(root, "Textures", base),
+                  os.path.join(root, "Images", base)]
+    for c in cands:
+        try:
+            if c and os.path.isfile(c):
+                return c.replace("\\", "/")
+        except Exception:
+            pass
+    return None
+
+
+def _material_color(mat_node):
+    c = _p70(mat_node, "DiffuseColor") or _p70(mat_node, "Diffuse")
+    if c and len(c) >= 3:
+        return (float(c[0]), float(c[1]), float(c[2]))
+    return None
+
+
+def _parse_materials(root, fbx_path):
+    """{materialId: {'color':(r,g,b)|None, 'texture':path|None}}。"""
+    objects = root.first("Objects")
+    connections = root.first("Connections")
+    if not objects:
+        return {}
+    textures, mats = {}, {}
+    for c in objects.children:
+        if not c.props or not isinstance(c.props[0], int):
+            continue
+        oid = c.props[0]
+        if c.name == "Material":
+            mats[oid] = c
+        elif c.name == "Texture":
+            fns = _texture_filenames(c)
+            if fns:
+                textures[oid] = fns
+    mat_tex = {}  # materialId -> [filenames]
+    if connections:
+        for c in connections.children:
+            if c.name != "C" or len(c.props) < 3 or c.props[0] != "OP":
+                continue
+            child_id, parent_id = c.props[1], c.props[2]
+            prop = str(c.props[3]) if len(c.props) > 3 else ""
+            if child_id in textures and parent_id in mats and "Diffuse" in prop:
+                mat_tex[parent_id] = textures[child_id]
+    out = {}
+    for mid, node in mats.items():
+        out[mid] = {
+            "color": _material_color(node),
+            "texture": _resolve_texture(mat_tex.get(mid), fbx_path),
+        }
+    return out
+
+
+def _geom_material_lists(root):
+    """{geomId: [materialId,...]}(连接顺序;LayerElementMaterial 的索引指向它)。"""
+    models, geom_ids, mat_ids, oo = _scene_ids(root)
+    if not mat_ids or not oo:
+        return {}
+    model_mats, geom_to_model = {}, {}
+    for child, parent in oo:
+        if child in mat_ids and parent in models:
+            model_mats.setdefault(parent, []).append(child)
+        elif child in geom_ids and parent in models:
+            geom_to_model[child] = parent
+    out = {}
+    for gid, mid in geom_to_model.items():
+        out[gid] = model_mats.get(mid, [])
+    return out
+
+
+# --------------------------------------------------------------------------- 每角点索引器
+def _layer_indexer(geom, layer_name, data_name, idx_name, comp, default_ref):
+    layer = geom.first(layer_name)
     if not layer:
         return None
-    narr = layer.first("Normals")
-    if not narr or not narr.props:
+    darr = layer.first(data_name)
+    if not darr or not darr.props:
         return None
-    normals = narr.props[0]
-
+    data = darr.props[0]
     mit = layer.first("MappingInformationType")
     rit = layer.first("ReferenceInformationType")
-    nmap = mit.props[0] if (mit and mit.props) else "ByPolygonVertex"
-    nref = rit.props[0] if (rit and rit.props) else "Direct"
-
-    nidx = None
-    if not nref.startswith("Direct"):
-        ni = layer.first("NormalsIndex") or layer.first("NormalIndex")
-        nidx = ni.props[0] if (ni and ni.props) else None
-
-    by_vertex = nmap.startswith("ByVert")  # ByVertex / ByVertice
+    mapping = mit.props[0] if (mit and mit.props) else "ByPolygonVertex"
+    ref = rit.props[0] if (rit and rit.props) else default_ref
+    didx = None
+    if not ref.startswith("Direct"):
+        ii = layer.first(idx_name)
+        didx = ii.props[0] if (ii and ii.props) else None
+    by_vertex = mapping.startswith("ByVert") or mapping.startswith("ByControl")
 
     def index(cpi, pvc):
         key = cpi if by_vertex else pvc
-        if nidx is not None:
-            if key < 0 or key >= len(nidx):
+        if didx is not None:
+            if key < 0 or key >= len(didx):
                 return None
-            key = nidx[key]
-        base = key * 3
-        if base < 0 or base + 2 >= len(normals):
+            key = didx[key]
+        base = key * comp
+        if base < 0 or base + comp - 1 >= len(data):
             return None
         return base
 
-    return normals, index
+    return data, index
+
+
+def _normal_indexer(geom):
+    return _layer_indexer(geom, "LayerElementNormal", "Normals", "NormalsIndex", 3, "Direct")
+
+
+def _uv_indexer(geom):
+    return _layer_indexer(geom, "LayerElementUV", "UV", "UVIndex", 2, "IndexToDirect")
+
+
+def _material_layer(geom):
+    """返回 (mapping, materials_int_array) 或 None。"""
+    layer = geom.first("LayerElementMaterial")
+    if not layer:
+        return None
+    marr = layer.first("Materials")
+    mit = layer.first("MappingInformationType")
+    mapping = mit.props[0] if (mit and mit.props) else "AllSame"
+    arr = marr.props[0] if (marr and marr.props) else None
+    return mapping, arr
 
 
 # --------------------------------------------------------------------------- MeshData
-class MeshData(object):
-    __slots__ = ("interleaved", "vertex_count", "bbox_min", "bbox_max")
+_DEFAULT_COLOR = (0.78, 0.78, 0.80)
+_FPV = 8  # floats per vertex: pos3 + nrm3 + uv2
 
-    def __init__(self, interleaved, vertex_count, bbox_min, bbox_max):
-        self.interleaved = interleaved      # bytes: [px,py,pz,nx,ny,nz] * vertex_count (float32)
-        self.vertex_count = vertex_count    # 三角形角点数(= 三角形数 * 3)，用 glDrawArrays
-        self.bbox_min = bbox_min            # (x,y,z)
+
+class Submesh(object):
+    __slots__ = ("first", "count", "color", "texture")
+
+    def __init__(self, first, count, color, texture):
+        self.first = first      # 起始角点索引(用于 glDrawArrays first)
+        self.count = count      # 角点数(用于 glDrawArrays count)
+        self.color = color      # (r,g,b) 固有色
+        self.texture = texture  # 漫反射贴图文件路径 或 None
+
+
+class MeshData(object):
+    __slots__ = ("interleaved", "submeshes", "bbox_min", "bbox_max", "vertex_count")
+
+    def __init__(self, interleaved, submeshes, bbox_min, bbox_max, vertex_count):
+        self.interleaved = interleaved   # bytes: [px,py,pz,nx,ny,nz,u,v] * vertex_count (float32)
+        self.submeshes = submeshes       # list[Submesh]
+        self.bbox_min = bbox_min
         self.bbox_max = bbox_max
+        self.vertex_count = vertex_count
 
     def center_radius(self):
         cx = (self.bbox_min[0] + self.bbox_max[0]) * 0.5
@@ -339,9 +465,7 @@ class MeshData(object):
         dy = self.bbox_max[1] - self.bbox_min[1]
         dz = self.bbox_max[2] - self.bbox_min[2]
         radius = 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz)
-        if radius <= 1e-6:
-            radius = 1.0
-        return (cx, cy, cz), radius
+        return (cx, cy, cz), (radius if radius > 1e-6 else 1.0)
 
 
 def _normalize(x, y, z):
@@ -358,7 +482,6 @@ def read(path):
             data = f.read()
     except (IOError, OSError) as e:
         raise FbxParseError("cannot read file: %s" % e)
-
     if not data:
         raise FbxParseError("empty file")
 
@@ -368,12 +491,30 @@ def read(path):
         raise FbxParseError("no Objects section")
 
     xforms = _build_transforms(root)
+    try:
+        geom_mats = _geom_material_lists(root)
+        mat_info = _parse_materials(root, path)
+    except Exception:
+        geom_mats, mat_info = {}, {}
 
-    out = array.array('f')
+    # 按材质(固有色+贴图)分桶,保持出现顺序
+    buckets = {}
+    bucket_order = []
+
+    def bucket_for(matid):
+        info = mat_info.get(matid) if matid is not None else None
+        color = (info.get("color") if info else None) or _DEFAULT_COLOR
+        texture = info.get("texture") if info else None
+        key = (color, texture)
+        b = buckets.get(key)
+        if b is None:
+            b = buckets[key] = array.array('f')
+            bucket_order.append(key)
+        return b
+
     inf = float("inf")
-    bmin_x = bmin_y = bmin_z = inf
+    min_x = min_y = min_z = inf
     max_x = max_y = max_z = -inf
-    corners = 0
 
     for geom in objects.children:
         if geom.name != "Geometry":
@@ -382,8 +523,8 @@ def read(path):
         pnode = geom.first("PolygonVertexIndex")
         if not vnode or not vnode.props or not pnode or not pnode.props:
             continue
-        verts = vnode.props[0]   # double array, xyz...
-        pvi = pnode.props[0]     # int array
+        verts = vnode.props[0]
+        pvi = pnode.props[0]
         if len(verts) < 9 or len(pvi) < 3:
             continue
 
@@ -391,10 +532,27 @@ def read(path):
         M = xforms.get(gid)
 
         nrm = _normal_indexer(geom)
-        normals = nrm[0] if nrm else None
-        nindex = nrm[1] if nrm else None
+        normals, nindex = (nrm[0], nrm[1]) if nrm else (None, None)
+        uvl = _uv_indexer(geom)
+        uvs, uindex = (uvl[0], uvl[1]) if uvl else (None, None)
 
-        # 控制点世界坐标缓存(同一 geometry 内复用)
+        mat_list = geom_mats.get(gid, [])
+        matlayer = _material_layer(geom)
+
+        def mat_for_poly(p):
+            if not mat_list:
+                return None
+            if matlayer is None:
+                return mat_list[0]
+            mapping, arr = matlayer
+            if mapping.startswith("AllSame") or not arr:
+                idx = arr[0] if arr else 0
+            else:
+                idx = arr[p] if p < len(arr) else 0
+            if idx < 0 or idx >= len(mat_list):
+                idx = 0
+            return mat_list[idx]
+
         pcache = {}
 
         def world_pos(cpi):
@@ -417,48 +575,69 @@ def read(path):
                 nx, ny, nz = _xform_dir(M, nx, ny, nz)
             return _normalize(nx, ny, nz)
 
-        # 收集一个多边形(角点 = (控制点索引, polygon-vertex 计数))，遇负值收尾后扇形三角化
+        def corner_uv(cpi, pvc):
+            if uvs is None:
+                return (0.0, 0.0)
+            base = uindex(cpi, pvc)
+            if base is None:
+                return (0.0, 0.0)
+            return (uvs[base], uvs[base + 1])
+
         poly = []
+        poly_index = 0
         for pvc in range(len(pvi)):
             idx = pvi[pvc]
             if idx < 0:
                 poly.append((~idx, pvc))
-                # 三角化
+                bucket = bucket_for(mat_for_poly(poly_index))
                 for k in range(1, len(poly) - 1):
-                    tri = (poly[0], poly[k], poly[k + 1])
-                    p0 = world_pos(tri[0][0])
-                    p1 = world_pos(tri[1][0])
-                    p2 = world_pos(tri[2][0])
-
-                    n0 = corner_normal(tri[0][0], tri[0][1])
-                    n1 = corner_normal(tri[1][0], tri[1][1])
-                    n2 = corner_normal(tri[2][0], tri[2][1])
+                    a, b_, c = poly[0], poly[k], poly[k + 1]
+                    p0 = world_pos(a[0]); p1 = world_pos(b_[0]); p2 = world_pos(c[0])
+                    n0 = corner_normal(a[0], a[1])
+                    n1 = corner_normal(b_[0], b_[1])
+                    n2 = corner_normal(c[0], c[1])
                     if n0 is None or n1 is None or n2 is None:
-                        # 面法线(flat)
                         ux, uy, uz = p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]
                         vx, vy, vz = p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]
-                        fn = _normalize(uy * vz - uz * vy,
-                                        uz * vx - ux * vz,
-                                        ux * vy - uy * vx)
-                        n0 = n1 = n2 = fn
-
-                    for (px, py, pz), (nx, ny, nz) in ((p0, n0), (p1, n1), (p2, n2)):
-                        out.append(px); out.append(py); out.append(pz)
-                        out.append(nx); out.append(ny); out.append(nz)
-                        if px < bmin_x: bmin_x = px
-                        if py < bmin_y: bmin_y = py
-                        if pz < bmin_z: bmin_z = pz
+                        n0 = n1 = n2 = _normalize(uy * vz - uz * vy,
+                                                  uz * vx - ux * vz,
+                                                  ux * vy - uy * vx)
+                    t0 = corner_uv(a[0], a[1])
+                    t1 = corner_uv(b_[0], b_[1])
+                    t2 = corner_uv(c[0], c[1])
+                    for (px, py, pz), (nx, ny, nz), (tu, tv) in (
+                            (p0, n0, t0), (p1, n1, t1), (p2, n2, t2)):
+                        bucket.append(px); bucket.append(py); bucket.append(pz)
+                        bucket.append(nx); bucket.append(ny); bucket.append(nz)
+                        bucket.append(tu); bucket.append(tv)
+                        if px < min_x: min_x = px
+                        if py < min_y: min_y = py
+                        if pz < min_z: min_z = pz
                         if px > max_x: max_x = px
                         if py > max_y: max_y = py
                         if pz > max_z: max_z = pz
-                    corners += 3
                 poly = []
+                poly_index += 1
             else:
                 poly.append((idx, pvc))
 
-    if corners == 0:
+    if not bucket_order:
         raise FbxParseError("no triangles extracted")
 
-    return MeshData(out.tobytes(), corners,
-                    (bmin_x, bmin_y, bmin_z),
-                    (max_x, max_y, max_z))
+    out = array.array('f')
+    submeshes = []
+    for key in bucket_order:
+        b = buckets[key]
+        nverts = len(b) // _FPV
+        if nverts == 0:
+            continue
+        first = len(out) // _FPV
+        out.extend(b)
+        color, texture = key
+        submeshes.append(Submesh(first, nverts, color, texture))
+
+    if not submeshes:
+        raise FbxParseError("no triangles extracted")
+
+    total = len(out) // _FPV
+    return MeshData(out.tobytes(), submeshes, (min_x, min_y, min_z), (max_x, max_y, max_z), total)

@@ -14,6 +14,7 @@ from PySide2 import QtWidgets
 from widgets.am_list_view import ListView
 from widgets.am_list_item_optimized import ListItemOptimized
 from widgets.am_thumbnail_loader import ThumbnailLoader
+from widgets import user_menu, note_menu
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,15 @@ class TableItemDelegate(QtWidgets.QStyledItemDelegate):
             item.paint(painter, option, index)
         else:
             super(TableItemDelegate, self).paint(painter, option, index)
+
+    def sizeHint(self, option, index):
+        # 自定义 paint 时一并提供 sizeHint，否则行高/绘制偶尔会乱（沿用旧 MainDelegate 的做法）。
+        item = self._table_widget.itemFromIndex(index) if self._table_widget else None
+        if item is not None:
+            hint = item.sizeHint()
+            if hint.isValid():
+                return hint
+        return super(TableItemDelegate, self).sizeHint(option, index)
 
 
 class TableWidget(QtWidgets.QTableWidget):
@@ -87,6 +97,27 @@ class TableWidget(QtWidgets.QTableWidget):
 
         self.verticalScrollBar().valueChanged.connect(self._onScroll)
 
+        # ---- 恢复表格交互（迁移到优化路径时遗漏了委托与下拉菜单） ----
+        # 1) 安装委托，让 am_tableItem 的自定义 paint() 生效（绘制 isCombo 下拉角标）。
+        #    QTableWidgetItem.paint() 不会被 Qt 自动调用，必须由委托转调。
+        self._delegate = TableItemDelegate(self)
+        self._delegate.setTableWidget(self)
+        self.setItemDelegate(self._delegate)
+
+        # 2) 单击单元格右侧 -> 制作人(3/5)/状态(4/6) 菜单；双击中文名(2) -> 编辑框。
+        self.clicked.connect(self._on_cell_clicked)
+        self.cellDoubleClicked.connect(self.show_edit_menu)
+        self.setDragEnabled(True)
+
+        # 3) 制作人选择面板 / 中文名编辑面板（回调 self.artist_changed / self.zh_name_changed）
+        self.user_menu = user_menu.UserMenuWidgetNoCheck(self)
+        self.user_menu.setItemsWidget(self)
+        self.is_user_menu = False
+
+        self.note_menu = note_menu.NoteMenuWidget(self)
+        self.note_menu.setItemsWidget(self)
+        self.is_note_menu = False
+
     def setItemsWidget(self, widget):
         self._items_widget = widget
 
@@ -101,7 +132,11 @@ class TableWidget(QtWidgets.QTableWidget):
         row = self.rowCount()
         self.insertRow(row)
 
-        for col, value in enumerate(data[:8]):  # 只取前8列
+        # 列 -> 数据字段映射：第 7 列“备注”取 data[8]；data[7] 是 icon 路径，表格不显示。
+        values = list(data[:7])
+        values.append(data[8] if len(data) > 8 and data[8] is not None else "")
+
+        for col, value in enumerate(values):
             if col < len(self.table_header):
                 from widgets import am_tableItem
                 if col == 3:
@@ -195,6 +230,148 @@ class TableWidget(QtWidgets.QTableWidget):
     def dragLeaveEvent(self, event):
         self.dragLeaveSignal.emit()
         super(TableWidget, self).dragLeaveEvent(event)
+
+    # -----------------------------------------------------------------------
+    # 下拉菜单 / 单元格编辑（从旧版 am_tableWidget.MainTableWidget 移植回来）
+    # -----------------------------------------------------------------------
+
+    def mousePressEvent(self, event):
+        super(TableWidget, self).mousePressEvent(event)
+        self.closeMenus()
+
+    def closeMenus(self):
+        """关闭弹出的制作人/中文名面板（点击表格或主窗空白处时调用）。"""
+        if getattr(self, 'is_user_menu', False):
+            self.user_menu.close()
+            self.is_user_menu = False
+        if getattr(self, 'is_note_menu', False):
+            self.note_menu.close()
+            self.is_note_menu = False
+
+    def _on_cell_clicked(self, *args):
+        """单击单元格右侧 1/3 区域时，按列弹出制作人/状态菜单。"""
+        item = self.currentItem()
+        if not item:
+            return
+        table_pos = self.viewport().mapToGlobal(self.pos())
+        rect = self.visualItemRect(item)
+        rectX = rect.left() + table_pos.x()
+        rectX_end = rectX + rect.width() / 3 * 2
+        if QtGui.QCursor.pos().x() > rectX_end:
+            col = item.column()
+            if col in (3, 5):      # 模型制作 / 绑定制作
+                self.show_user_menu()
+            elif col in (4, 6):    # 模型状态 / 绑定状态
+                self.show_status_menu()
+
+    def show_edit_menu(self, *args):
+        """双击中文名(第 2 列)弹出编辑框。"""
+        item = self.currentItem()
+        if not item:
+            return
+        table_pos = self.viewport().mapToGlobal(self.pos())
+        rect = self.visualItemRect(item)
+        if item.column() == 2:
+            self.note_menu.setUp(item.text())
+            self.note_menu.setGeometry(
+                rect.left() + table_pos.x(), rect.top() + table_pos.y(),
+                rect.width(), rect.height())
+            self.is_note_menu = True
+
+    def show_user_menu(self):
+        """弹出制作人选择面板。"""
+        item = self.currentItem()
+        if not item:
+            return
+        table_pos = self.viewport().mapToGlobal(self.pos())
+        rect = self.visualItemRect(item)
+        self.user_menu.setUp(exist_name='')
+        self.user_menu.setGeometry(
+            rect.left() + table_pos.x(), rect.bottom() + table_pos.y(), 200, 300)
+        self.is_user_menu = True
+
+    def show_status_menu(self):
+        """弹出状态选择菜单。"""
+        item = self.currentItem()
+        if not item:
+            return
+        table_pos = self.viewport().mapToGlobal(self.pos())
+        rect = self.visualItemRect(item)
+        rectX = rect.left() + table_pos.x()
+        rectY = rect.bottom() + table_pos.y()
+        menu = QtWidgets.QMenu()
+        for label in (u'未开始', u'制作中', u'已完成'):
+            action = QtWidgets.QAction(label, self)
+            action.triggered.connect(lambda checked=False, t=label: self.status_changed(t))
+            menu.addAction(action)
+        menu.exec_(QtCore.QPoint(rectX, rectY))
+
+    def _current_asset_name(self, row):
+        """取某行的资产名(第 1 列)。"""
+        name_item = self.item(row, 1)
+        return name_item.text() if name_item is not None else None
+
+    def artist_changed(self, text):
+        """制作人改变 -> 写库 -> 更新单元格文字。"""
+        row, col = self.currentRow(), self.currentColumn()
+        asset_name = self._current_asset_name(row)
+        if col == 3:        # 模型制作
+            self.update_asset(asset_name, "asset.mod_artist", text)
+            self.item(row, 3).setName(text)
+        elif col == 5:      # 绑定制作
+            self.update_asset(asset_name, "asset.rig_artist", text)
+            self.item(row, 5).setName(text)
+
+    def status_changed(self, text):
+        """状态改变 -> 写库 -> 更新单元格文字。"""
+        row, col = self.currentRow(), self.currentColumn()
+        asset_name = self._current_asset_name(row)
+        if col == 4:        # 模型状态
+            self.update_asset(asset_name, "asset.mod_status", text)
+            self.item(row, 4).setName(text)
+        elif col == 6:      # 绑定状态
+            self.update_asset(asset_name, "asset.rig_status", text)
+            self.item(row, 6).setName(text)
+
+    def zh_name_changed(self, text):
+        """中文名改变 -> 写库 -> 更新单元格文字。"""
+        row, col = self.currentRow(), self.currentColumn()
+        asset_name = self._current_asset_name(row)
+        if col == 2:
+            self.update_asset(asset_name, "asset.zh_name", text)
+            self.note_menu.close()
+            self.is_note_menu = False
+            self.item(row, 2).setName(text)
+
+    def update_asset(self, asset_name, key, value):
+        """写回数据库。db/user/password/host 取自外部控制器(AssetToolsUI)，随当前项目实时变化。"""
+        ctrl = self._items_widget
+        if ctrl is None or not asset_name:
+            return
+        try:
+            db = ctrl.currentProject()
+            user, password, host = ctrl.user, ctrl.password, ctrl.host
+        except AttributeError:
+            return
+
+        import psycopg2
+        update_script = '''
+            UPDATE public.asset SET "%s" = '%s'
+            WHERE "asset.name" = '%s';''' % (key, value, asset_name)
+        conn = None
+        cur = None
+        try:
+            conn = psycopg2.connect(database=db, user=user, password=password, host=host, port="5432")
+            cur = conn.cursor()
+            cur.execute(update_script)
+            conn.commit()
+        except Exception as e:
+            print(e)
+        finally:
+            if cur is not None:
+                cur.close()
+            if conn is not None:
+                conn.close()
 
 
 class ItemsWidget(QtWidgets.QWidget):
@@ -407,3 +584,8 @@ class ItemsWidget(QtWidgets.QWidget):
     def setFocus(self):
         """设置焦点"""
         self.currentWidget().setFocus()
+
+    def closeMenus(self):
+        """转发给表格视图，关闭其弹出的制作人/中文名面板。"""
+        if hasattr(self._table_widget, "closeMenus"):
+            self._table_widget.closeMenus()

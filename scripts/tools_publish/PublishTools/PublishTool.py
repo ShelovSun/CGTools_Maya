@@ -304,7 +304,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         ''' ac '''
         self.ui.render_bttn_ac.setIcon(QtGui.QPixmap('%s/icon/render.png' % self.scriptsPath))
         self.ui.render_bttn_ac.clicked.connect(self.renderIcon_ac)
-        self.ui.publishType_comb_ac.currentIndexChanged.connect(lambda: self.type_changed_ac())
+        # self.ui.publishType_comb_ac.currentIndexChanged.connect(lambda: self.type_changed_ac())
 
         sty = "background-color: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 rgba(" \
               "35, 35, 35, 100),  stop:1 rgba(35, 35, 35, 255)); "
@@ -393,10 +393,10 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
         elif self.ui.Pub_Tab.currentIndex() == 3:  # Action============================================================
             self.update_proj(self.ui.publishProj_comb_ac)
-            self.update_type_ac()
+            # self.update_type_ac()
             if self.check_ac():
                 self.update_Title_ac()
-                self.update_time_slider_state()
+                # self.update_time_slider_state()
                 self.isYesEnable_ac()
                 self.isFBXEnable_ac()
                 # self.ui.Yes_bttn.clicked.connect(self._actionPublish)
@@ -457,9 +457,9 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         wgt.addItems(type_list)
         wgt.setCurrentIndex(0)
 
-    def update_type_ac(self):
-        self.ui.publishType_comb_ac.clear()
-        self.ui.publishType_comb_ac.addItems([u"**", "Pose", "Animation"])
+    # def update_type_ac(self):
+    #     self.ui.publishType_comb_ac.clear()
+    #     self.ui.publishType_comb_ac.addItems([u"**", "Pose", "Animation"])
 
     def proj_changed_sc(self):
         """
@@ -501,7 +501,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
     def type_changed_ac(self):
         """ 改变ac类型触发：锁定time range；锁定fbx；锁定Yes；修改标题"""
-        self.update_time_slider_state()
+        # self.update_time_slider_state()
         self.isYesEnable_ac()
         self.isFBXEnable_ac()
         self.update_Title_ac()
@@ -629,20 +629,32 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 return "isSC"
 
     def check_ac(self):
-        """ 检查action资产是否符合发布规范，并设置UI显示"""
-        assetRef = cmds.ls(rf=1)
-        if assetRef:
-            assetPath = cmds.referenceQuery(assetRef[0], filename=True)
-            projectName = assetPath.split('/')[2]
-            characterName = assetPath.split('/')[5]
-            if projectName not in self.projectSetting()['projects']:
-                QtWidgets.QMessageBox.warning(self, 'Warning', u'请检查资产的项目名是否正确!!!')
-                return False
-            self.ui.publishProj_comb_ac.setCurrentText(projectName)
-            self.ui.name_lineEdit_ac.setText(characterName)
-        else:
-            QtWidgets.QMessageBox.warning(self, 'Warning', u'找不到Reference的资产,请检查!!!')
+        """ 检查action资产是否符合发布规范，并设置UI显示
+
+        以当前选中的物体（控制器或模型）所属的角色作为要发布的资产，
+        而不是固定取场景里第一个 reference。
+        """
+        selection = cmds.ls(sl=True, long=True) or []
+        if not selection:
+            QtWidgets.QMessageBox.warning(self, 'Warning', u'请至少选择一个物体（选中要发布的角色身上的任意物体）')
             return False
+
+        # 从选中的物体反查它所属的 reference，即要发布的角色
+        try:
+            assetRef = cmds.referenceQuery(selection[0], referenceNode=True)
+        except RuntimeError:
+            QtWidgets.QMessageBox.warning(self, 'Warning', u'选中的物体不是引用进来的角色,请选中要发布的角色身上的物体!!!')
+            return False
+
+        assetPath = cmds.referenceQuery(assetRef, filename=True)
+        projectName = assetPath.split('/')[2]
+        characterName = assetPath.split('/')[5]
+        if projectName not in self.projectSetting()['projects']:
+            QtWidgets.QMessageBox.warning(self, 'Warning', u'请检查资产的项目名是否正确!!!')
+            return False
+        self.ui.publishProj_comb_ac.setCurrentText(projectName)
+        self.ui.name_lineEdit_ac.setText(characterName)
+
         if not self.validateAnimLayers():
             return False
         self._setTimeRange()
@@ -699,39 +711,46 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         return projectName, characterName, characterCHName, publishType, path
 
     def get_publishInfo_ac(self):
-        publish_path = ""
+        # publish_path = ""
         projectName = self.ui.publishProj_comb_ac.currentText()
         characterName = self.ui.name_lineEdit_ac.text()
         actionName = self.ui.name_lineEdit_action.text()
-        publishType = self.ui.publishType_comb_ac.currentText()
-        if publishType == "Pose":
-            publish_path = "{0}/{1}/{2}/{2}_{3}.pose".format(self.ROOT, projectName, characterName, actionName)
-        elif publishType == "Animation":
-            publish_path = "{0}/{1}/{2}/{2}_{3}.anim".format(self.ROOT, projectName, characterName, actionName)
+        # publishType = self.ui.publishType_comb_ac.currentText()
+        # if publishType == "Pose":
+        #     publish_path = "{0}/{1}/{2}/{2}_{3}.pose".format(self.ROOT, projectName, characterName, actionName)
+        # elif publishType == "Animation":
+        #     publish_path = "{0}/{1}/{2}/{2}_{3}.anim".format(self.ROOT, projectName, characterName, actionName)
         # 范例：Y:\MCCProject\StudioLibrary_Ani\IM\BossQ\BossQ_AK_walk.anim
+        path = '%s/%s/%s/%s/%s/%s' % (self.projectSetting()['rootPath'],
+                                projectName,
+                                self.projectSetting()['assetFolder'],
+                                "Characters",
+                                characterName,
+                                self.projectSetting()['actionFolder'])
         start = int(self.ui.start_lineEdit.text())
         end = int(self.ui.end_lineEdit.text())
         if start >= end:
             QtWidgets.QMessageBox.warning(self, "Warning", u"结束帧请大于起始帧")
             return
-        actionCHName = self.ui.CHname_lineEdit_ac.text()
+        # actionCHName = self.ui.CHname_lineEdit_ac.text()
 
-        return projectName, characterName, actionCHName, actionName, publishType, publish_path, start, end
+        return projectName, characterName, actionName, path, start, end
 
     def update_Title_ac(self):
         """ ac栏更新标题 """
-        projectName, characterName, actionCHName, actionName, publishType, path, start, end = self.get_publishInfo_ac()
+        projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
+        # projectName, characterName, actionCHName, actionName, publishType, path, start, end = self.get_publishInfo_ac()
         self.ui.Title_label.setText(u"<h3>确定发布 {0} 到 \n{1} ？</h3>".format(characterName + '_' + actionName,
                                                                           path))
 
     def update_time_slider_state(self):
-        _type = self.ui.publishType_comb_ac.currentText()
-        if _type == u"**" or _type == "Pose":
-            self.ui.time_slider_rBttn.setEnabled(False)
-            self.ui.start_end_rbttn.setEnabled(False)
-        elif _type == "Animation":
-            self.ui.time_slider_rBttn.setEnabled(True)
-            self.ui.start_end_rbttn.setEnabled(True)
+        # _type = self.ui.publishType_comb_ac.currentText()
+        # if _type == u"**" or _type == "Pose":
+        #     self.ui.time_slider_rBttn.setEnabled(False)
+        #     self.ui.start_end_rbttn.setEnabled(False)
+        # elif _type == "Animation":
+        self.ui.time_slider_rBttn.setEnabled(True)
+        self.ui.start_end_rbttn.setEnabled(True)
 
     def isYesEnable_sc(self):
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_sc()
@@ -741,7 +760,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.ui.Yes_bttn.setEnabled(True)
 
     def isYesEnable_ac(self):
-        projectName, characterName, actionCHName, actionName, type, path, start, end = self.get_publishInfo_ac()
+        projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
+        # projectName, characterName, actionCHName, actionName, type, path, start, end = self.get_publishInfo_ac()
 
         if type == u"**" or actionName == "" or characterName == "":
             self.ui.Yes_bttn.setEnabled(False)
@@ -749,7 +769,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.ui.Yes_bttn.setEnabled(True)
 
     def isFBXEnable_ac(self):
-        projectName, characterName, actionCHName, actionName, type, path, start, end = self.get_publishInfo_ac()
+        projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
+        # projectName, characterName, actionCHName, actionName, type, path, start, end = self.get_publishInfo_ac()
         if type == u"**" or type == "Pose":
             self.ui.fbx_cBox_4.setEnabled(False)
         else:
@@ -760,11 +781,11 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         判断渲染什么icon
         :return:
         """
-        type = self.ui.publishType_comb_ac.currentText()
-        if type == u"**" or type == "Pose":
-            self.renderIcon(self.ui.Preview_label_ac, imageFormat='jpg')
-        elif type == "Animation":
-            self.renderSeq(self.ui.Preview_label_ac)
+        # type = self.ui.publishType_comb_ac.currentText()
+        # if type == u"**" or type == "Pose":
+        #     self.renderIcon(self.ui.Preview_label_ac, imageFormat='jpg')
+        # elif type == "Animation":
+        self.renderSeq(self.ui.Preview_label_ac)
 
     def renderIcon(self, wgt, imageFormat='png'):
         """
@@ -1545,7 +1566,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         动作库发布
         :return:
         """
-        projectName, characterName, CHName, actionName, publishType, path, start, end = self.get_publishInfo_ac()
+        projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
+        # projectName, characterName, CHName, actionName, publishType, path, start, end = self.get_publishInfo_ac()
         self._log = "log:"
         self.ui.log_treeWgt.clear()
         self.ui.log_progressBar.setVisible(True)
@@ -1553,49 +1575,46 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         if actionName == u"**":
             QtWidgets.QMessageBox.warning(self, 'Warning', u'请设置正确的动作名，比如：Run !')
             return
-        if publishType == u"**":
-            QtWidgets.QMessageBox.warning(self, 'Warning', u'请选择一个类型 !')
-            return
+        # if publishType == u"**":
+        #     QtWidgets.QMessageBox.warning(self, 'Warning', u'请选择一个类型 !')
+        #     return
         if start >= end:
             QtWidgets.QMessageBox.warning(self, "Warning", u"结束帧请大于起始帧")
             self.ui.log_progressBar.setVisible(False)
             return
-        controls = []
-        selected_controls = cmds.ls(sl=1, type='transform')
-        for selected_control in selected_controls:
-            if cmds.nodeType(cmds.listRelatives(selected_control, shapes=True)) == 'nurbsCurve':
-                controls.append(selected_control)
+        # 控制器或模型都允许，只要选中了角色身上的物体即可
+        controls = cmds.ls(sl=1, type='transform') or []
         if not controls:
-            QtWidgets.QMessageBox.warning(self, "Warning", u"请选择要导出的控制器")
+            QtWidgets.QMessageBox.warning(self, "Warning", u"请至少选择一个物体")
             self.ui.log_progressBar.setVisible(False)
             return
         ''' =============== 拍icon =============================================== '''
-        iconPath = str('%s/snapshot/thumbnail.jpg' % self.tempPath)
-        sequencePath = self.tempPath + "/sequence"
-        if publishType == "Animation":
-            self.Pub.seqshot(sequencePath)
+        # iconPath = str('%s/snapshot/thumbnail.jpg' % self.tempPath)
+        # sequencePath = self.tempPath + "/sequence"
+        # if publishType == "Animation":
+        #     self.Pub.seqshot(sequencePath)
         ''' =============== 发布动作库 =============================================== '''
-        try:
-            self.Pub.makePath(path)
-            if publishType == "Animation":
-                animation.saveAnim(path=path,
-                                   objects=controls,
-                                   time=(start, end),
-                                   iconPath=iconPath,
-                                   sequencePath=sequencePath,
-                                   metadata={'description': u'%s' % CHName})
-            else:
-                pose.savePose(path=path,
-                              objects=controls,
-                              iconPath=iconPath,
-                              metadata={'description': u'%s' % CHName})
-            self.logMsg(None, u"动作{}已发布".format(actionName), "succeed")
-        except Exception as e:
-            self.logMsg(None, u"动作{0}发布失败：{1}".format(actionName, e), "failed")
+        # try:
+        #     self.Pub.makePath(path)
+        #     if publishType == "Animation":
+        #         animation.saveAnim(path=path,
+        #                            objects=controls,
+        #                            time=(start, end),
+        #                            iconPath=iconPath,
+        #                            sequencePath=sequencePath,
+        #                            metadata={'description': u'%s' % CHName})
+        #     else:
+        #         pose.savePose(path=path,
+        #                       objects=controls,
+        #                       iconPath=iconPath,
+        #                       metadata={'description': u'%s' % CHName})
+        #     self.logMsg(None, u"动作{}已发布".format(actionName), "succeed")
+        # except Exception as e:
+        #     self.logMsg(None, u"动作{0}发布失败：{1}".format(actionName, e), "failed")
         self.ui.log_progressBar.setValue(50)
         ''' =============== 保存maya档 =============================================== '''
         try:
-            filePath = '%s/maya_file.ma' % path  #, characterName, actionName)
+            filePath = '%s/%s_%s.ma' % (path, characterName, actionName)
             cmds.file(rename=filePath)
             cmds.file(save=True, type='mayaAscii')
             self.logMsg(None, u"maya保存成功", "succeed")
@@ -1604,12 +1623,13 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.ui.log_progressBar.setValue(80)
         ''' =============== 发布fbx =============================================== '''
         if self.ui.fbx_cBox_4.isChecked():
-            if publishType == "Animation":
-                try:
-                    self.ani_fbx_export(path, start, end)
-                    self.logMsg(None, u"fbx已发布", "succeed")
-                except Exception as e:
-                    self.logMsg(None, u"fbx发布失败:%s" % e, "failed")
+            # if publishType == "Animation":
+            try:
+                filePath = '%s/%s_%s.fbx' % (path, characterName, actionName)
+                self.ani_fbx_export(filePath, start, end)
+                self.logMsg(None, u"fbx已发布", "succeed")
+            except Exception as e:
+                self.logMsg(None, u"fbx发布失败:%s" % e, "failed")
         self.ui.log_progressBar.setValue(100)
         ''' =============== END =============================================== '''
         msg = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Information, u"提示：",
@@ -2381,21 +2401,49 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         fbxPath = '%s/%s.fbx' % (fbxFolderPath, asset_name)
         self.Pub.exportFBX(False, 1, 200, fbxPath)
 
-    def ani_fbx_export(self, path, start, end):
-        """发布动画fbx"""
-        aniAST_list = cmds.ls('*:*_*_AST', type='transform')
+    def ani_fbx_export(self, fbxPath, start, end):
+        """发布动画fbx
 
-        for i in aniAST_list:
-            aniFbxName = i.replace(':', '__')
-            cmds.select(clear=True)
-            cmds.select('{0}:Geometry'.format(i.split(':')[0]))
-            try:
-                cmds.select('{0}:DeformationSystem'.format(i.split(':')[0]), add=True)
-            except Exception as e:
-                cmds.warning('Can not find {0}:DeformationSystem:{1}'.format(i.split(':')[0], e))
-            fbxPath = '%s/%s.fbx' % (path, aniFbxName)
+        根据当前选择的物体（控制器或模型）推断角色所在的命名空间，
+        再选中该角色的 ``<namespace>:DeformationSystem`` 骨骼组，
+        最后调用 ``exportFBX`` 导出带烘焙动画的 fbx。
+        """
+        print("开始导出动画fbx", fbxPath, start, end)
+
+        # 1. 从当前选择推断角色命名空间
+        selection = cmds.ls(sl=True, long=True) or []
+        if not selection:
+            raise RuntimeError(u"请先选择角色身上的任意物体（控制器或模型）后再导出fbx")
+
+        namespaces = []
+        for node in selection:
+            leaf = node.split('|')[-1]      # 去掉 DAG 路径，只保留带命名空间的节点名
+            ns = leaf.rpartition(':')[0]    # 命名空间（兼容嵌套），无命名空间时为空串
+            if ns and ns not in namespaces:
+                namespaces.append(ns)
+
+        if not namespaces:
+            raise RuntimeError(u"选中的物体没有命名空间，无法确定是哪个角色，请确认选中的是引用进来的角色")
+        if len(namespaces) > 1:
+            cmds.warning(u"选择里包含多个角色 {0}，本次只导出第一个：{1}".format(namespaces, namespaces[0]))
+        namespace = namespaces[0]
+
+        # 2. 选中该角色的骨骼组 <namespace>:DeformationSystem
+        deformGrp = '{0}:DeformationSystem'.format(namespace)
+        if not cmds.objExists(deformGrp):
+            raise RuntimeError(u"找不到角色 {0} 的骨骼组：{1}".format(namespace, deformGrp))
+
+        cmds.select(deformGrp, replace=True)
+        print(u"导出角色：{0}  骨骼组：{1}".format(namespace, deformGrp))
+
+        # 3. 导出 fbx（exportFBX 内部用 FBXExport -s 导出当前选择及其层级）
+        try:
             self.Pub.exportFBX(True, start, end, fbxPath)
-        cmds.select(clear=True)
+        finally:
+            # 还原用户的原始选择
+            cmds.select(clear=True)
+            if selection:
+                cmds.select(selection)
 
 
 def showWindow(tab=0, _project=None, _type=None):

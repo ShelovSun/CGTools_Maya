@@ -146,3 +146,7 @@ class MainStackedWidget(QtWidgets.QStackedWidget):
     def setFocus(self):
         """设置焦点"""
         self._items_widget.setFocus()
+
+    def closeMenus(self):
+        """关闭表格视图弹出的制作人/中文名面板"""
+        self._items_widget.closeMenus()

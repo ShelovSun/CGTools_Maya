@@ -11,7 +11,6 @@ import maya.OpenMayaUI as omui
 import maya.cmds as cmds
 from PySide2 import QtCore
 from PySide2 import QtGui
-from PySide2 import QtUiTools
 from PySide2 import QtWidgets
 from shiboken2 import wrapInstance
 
@@ -46,12 +45,8 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.user = user
         self.password = password
 
-        # 加载 UI
-        f = QtCore.QFile('%s/ui/assetTools.ui' % self.scriptsPath)
-        f.open(QtCore.QFile.ReadOnly)
-        loader = QtUiTools.QUiLoader().load(f)
-        self.ui = loader
-        f.close()
+        # 构建 UI（原 ui/assetTools.ui，改为代码构建，控件直接挂在 self 上）
+        self.setupUi()
 
         self.Pub = publish.Publish()
         self.tab = "Assets"
@@ -83,44 +78,462 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.init_ui()
         self.show_asset()
 
+    def setupUi(self):
+        """构建资产管理控件（原 ui/assetTools.ui，改为代码构建）"""
+
+        def _set_size_policy(widget, h, v):
+            sp = QtWidgets.QSizePolicy(h, v)
+            sp.setHorizontalStretch(0)
+            sp.setVerticalStretch(0)
+            sp.setHeightForWidth(widget.sizePolicy().hasHeightForWidth())
+            widget.setSizePolicy(sp)
+
+        def _font(size=10, bold=False, family=u"Microsoft YaHei UI"):
+            f = QtGui.QFont()
+            f.setFamily(family)
+            f.setPointSize(size)
+            if bold:
+                f.setBold(True)
+                f.setWeight(75)
+            return f
+
+        self.setWindowTitle(u"Form")
+        self.setFont(_font())
+
+        gridLayout_2 = QtWidgets.QGridLayout(self)
+        gridLayout_2.setContentsMargins(0, 0, 0, 0)
+        gridLayout_2.setSpacing(0)
+
+        # ============ 顶部消息栏 ============
+        msg_Layout = QtWidgets.QHBoxLayout()
+        msg_Layout.setSpacing(10)
+
+        self.msg_icon_label = QtWidgets.QLabel()
+        _set_size_policy(self.msg_icon_label, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.msg_icon_label.setMinimumSize(QtCore.QSize(15, 15))
+        self.msg_icon_label.setMaximumSize(QtCore.QSize(15, 15))
+        self.msg_icon_label.setScaledContents(True)
+        msg_Layout.addWidget(self.msg_icon_label)
+
+        self.msg_label = QtWidgets.QLabel()
+        _set_size_policy(self.msg_label, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.msg_label.setMinimumSize(QtCore.QSize(0, 15))
+        self.msg_label.setMaximumSize(QtCore.QSize(150000, 15))
+        self.msg_label.setFont(_font(size=8))
+        self.msg_label.setScaledContents(True)
+        msg_Layout.addWidget(self.msg_label)
+
+        msg_Layout.addItem(QtWidgets.QSpacerItem(
+            40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum))
+
+        # ============ 主分割器（左/中/右三栏） ============
+        self.mainWindow_splitter = QtWidgets.QSplitter()
+        self.mainWindow_splitter.setOrientation(QtCore.Qt.Horizontal)
+        self.mainWindow_splitter.setHandleWidth(2)
+        self.mainWindow_splitter.setChildrenCollapsible(False)
+
+        # ---- 左栏：项目下拉 + 类型列表 ----
+        layoutWidget = QtWidgets.QWidget()
+        self.verticalLayout = QtWidgets.QVBoxLayout(layoutWidget)
+        self.verticalLayout.setSpacing(0)
+        self.verticalLayout.setContentsMargins(0, 0, 0, 0)  # layoutWidget 容器:布局边距置 0(同 uic)
+        self.verticalLayout.setSizeConstraint(QtWidgets.QLayout.SetMinAndMaxSize)
+
+        horizontalLayout_3 = QtWidgets.QHBoxLayout()
+        horizontalLayout_3.setSpacing(6)
+        horizontalLayout_3.setSizeConstraint(QtWidgets.QLayout.SetDefaultConstraint)
+        horizontalLayout_3.setContentsMargins(-1, 2, -1, 2)
+
+        self.label_2 = QtWidgets.QLabel()
+        self.label_2.setMinimumSize(QtCore.QSize(30, 0))
+        self.label_2.setMaximumSize(QtCore.QSize(30, 16777215))
+        self.label_2.setFont(_font())
+        self.label_2.setText(u"项目:")
+        horizontalLayout_3.addWidget(self.label_2)
+
+        self.project_comb = QtWidgets.QComboBox()
+        _set_size_policy(self.project_comb, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.project_comb.setMinimumSize(QtCore.QSize(50, 25))
+        self.project_comb.setMaximumSize(QtCore.QSize(200, 25))
+        self.project_comb.setFont(_font(bold=True))
+        horizontalLayout_3.addWidget(self.project_comb, 0, QtCore.Qt.AlignLeft)
+
+        self.verticalLayout.addLayout(horizontalLayout_3)
+
+        self.type_splitter = QtWidgets.QSplitter()
+        self.type_splitter.setOrientation(QtCore.Qt.Vertical)
+        self.type_splitter.setHandleWidth(3)
+
+        self.type_listWgt = QtWidgets.QListWidget()
+        _set_size_policy(self.type_listWgt, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.type_listWgt.setMinimumSize(QtCore.QSize(50, 50))
+        self.type_listWgt.setMaximumSize(QtCore.QSize(16777215, 16777215))
+        self.type_listWgt.setAlternatingRowColors(False)
+        self.type_listWgt.setSpacing(3)
+        self.type_listWgt.setSortingEnabled(False)
+        self.type_splitter.addWidget(self.type_listWgt)
+
+        self.verticalLayout.addWidget(self.type_splitter)
+        self.mainWindow_splitter.addWidget(layoutWidget)
+
+        # ---- 中栏：工具栏（主视图在 init_ui 里追加进 verticalLayout_3） ----
+        layoutWidget_2 = QtWidgets.QWidget()
+        self.verticalLayout_3 = QtWidgets.QVBoxLayout(layoutWidget_2)
+        self.verticalLayout_3.setSpacing(3)
+        self.verticalLayout_3.setContentsMargins(0, 0, 0, 0)
+
+        horizontalLayout = QtWidgets.QHBoxLayout()
+        horizontalLayout.setSpacing(2)
+
+        self.back_bttn = QtWidgets.QPushButton()
+        self.back_bttn.setEnabled(False)
+        _set_size_policy(self.back_bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.back_bttn.setMinimumSize(QtCore.QSize(25, 25))
+        self.back_bttn.setMaximumSize(QtCore.QSize(25, 25))
+        self.back_bttn.setFont(_font(size=3))
+        self.back_bttn.setToolTip(u"后退")
+        self.back_bttn.setIconSize(QtCore.QSize(22, 22))
+        self.back_bttn.setCheckable(False)
+        self.back_bttn.setDefault(False)
+        self.back_bttn.setFlat(True)
+        horizontalLayout.addWidget(self.back_bttn)
+
+        self.add_bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.add_bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.add_bttn.setMinimumSize(QtCore.QSize(25, 25))
+        self.add_bttn.setMaximumSize(QtCore.QSize(25, 25))
+        self.add_bttn.setIconSize(QtCore.QSize(22, 22))
+        self.add_bttn.setAutoExclusive(True)
+        self.add_bttn.setFlat(True)
+        horizontalLayout.addWidget(self.add_bttn)
+
+        self.displayThumb_bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.displayThumb_bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.displayThumb_bttn.setMinimumSize(QtCore.QSize(25, 25))
+        self.displayThumb_bttn.setMaximumSize(QtCore.QSize(25, 25))
+        self.displayThumb_bttn.setFont(_font(size=3))
+        self.displayThumb_bttn.setIconSize(QtCore.QSize(22, 22))
+        self.displayThumb_bttn.setCheckable(False)
+        self.displayThumb_bttn.setAutoRepeat(False)
+        self.displayThumb_bttn.setAutoExclusive(True)
+        self.displayThumb_bttn.setFlat(True)
+        horizontalLayout.addWidget(self.displayThumb_bttn)
+
+        self.itemSize_Slider = QtWidgets.QSlider()
+        self.itemSize_Slider.setMaximumSize(QtCore.QSize(150, 16777215))
+        self.itemSize_Slider.setFont(_font(size=3))
+        self.itemSize_Slider.setToolTip(u"缩放图标")
+        self.itemSize_Slider.setMinimum(10)
+        self.itemSize_Slider.setMaximum(200)
+        self.itemSize_Slider.setValue(120)
+        self.itemSize_Slider.setOrientation(QtCore.Qt.Horizontal)
+        horizontalLayout.addWidget(self.itemSize_Slider)
+
+        self.download_Bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.download_Bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.download_Bttn.setMinimumSize(QtCore.QSize(25, 25))
+        self.download_Bttn.setMaximumSize(QtCore.QSize(25, 25))
+        self.download_Bttn.setFont(_font(size=3))
+        self.download_Bttn.setToolTip(u"下载资产到本地")
+        self.download_Bttn.setIconSize(QtCore.QSize(22, 22))
+        self.download_Bttn.setFlat(True)
+        horizontalLayout.addWidget(self.download_Bttn)
+
+        self.refresh_Bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.refresh_Bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.refresh_Bttn.setMinimumSize(QtCore.QSize(25, 25))
+        self.refresh_Bttn.setMaximumSize(QtCore.QSize(25, 25))
+        self.refresh_Bttn.setFont(_font(size=3))
+        self.refresh_Bttn.setToolTip(u"刷新")
+        self.refresh_Bttn.setIconSize(QtCore.QSize(22, 22))
+        self.refresh_Bttn.setFlat(True)
+        horizontalLayout.addWidget(self.refresh_Bttn)
+
+        horizontalLayout.addItem(QtWidgets.QSpacerItem(
+            40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum))
+
+        self.key_line = QtWidgets.QLineEdit()
+        self.key_line.setMinimumSize(QtCore.QSize(25, 25))
+        self.key_line.setMaximumSize(QtCore.QSize(16777215, 25))
+        self.key_line.setFont(_font())
+        self.key_line.setPlaceholderText(u"Search...")
+        self.key_line.setClearButtonEnabled(True)
+        horizontalLayout.addWidget(self.key_line, 1)
+
+        self.searchAll_cBox = QtWidgets.QCheckBox()
+        self.searchAll_cBox.setMinimumSize(QtCore.QSize(13, 0))
+        self.searchAll_cBox.setFont(_font())
+        self.searchAll_cBox.setToolTip(u"全项目搜索")
+        self.searchAll_cBox.setChecked(False)
+        horizontalLayout.addWidget(self.searchAll_cBox)
+
+        self.verticalLayout_3.addLayout(horizontalLayout)
+        self.mainWindow_splitter.addWidget(layoutWidget_2)
+
+        # ---- 右栏：预览 / 属性 分割器 ----
+        self.attr_splitter = QtWidgets.QSplitter()
+        _set_size_policy(self.attr_splitter, QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
+        self.attr_splitter.setFont(_font())
+        self.attr_splitter.setOrientation(QtCore.Qt.Vertical)
+        self.attr_splitter.setHandleWidth(3)
+
+        # 上半：收藏/标签/上传按钮 + 预览框（预览控件在 init_ui 里加入 preview_vLayout）
+        layoutWidget_3 = QtWidgets.QWidget()
+        self.Attr_up_vLayout = QtWidgets.QVBoxLayout(layoutWidget_3)
+        self.Attr_up_vLayout.setSpacing(2)
+        self.Attr_up_vLayout.setContentsMargins(0, 0, 0, 0)
+
+        horizontalLayout_6 = QtWidgets.QHBoxLayout()
+        horizontalLayout_6.addItem(QtWidgets.QSpacerItem(
+            40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum))
+
+        self.upload_Bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.upload_Bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.upload_Bttn.setMaximumSize(QtCore.QSize(21, 25))
+        self.upload_Bttn.setIconSize(QtCore.QSize(20, 15))
+        self.upload_Bttn.setFlat(True)
+        horizontalLayout_6.addWidget(self.upload_Bttn)
+
+        self.tag_bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.tag_bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.tag_bttn.setMaximumSize(QtCore.QSize(18, 25))
+        self.tag_bttn.setToolTip(u"添加标签")
+        self.tag_bttn.setIconSize(QtCore.QSize(15, 15))
+        self.tag_bttn.setFlat(True)
+        horizontalLayout_6.addWidget(self.tag_bttn)
+
+        self.favor_bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.favor_bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.favor_bttn.setMaximumSize(QtCore.QSize(18, 25))
+        self.favor_bttn.setFont(_font())
+        self.favor_bttn.setToolTip(u"添加收藏")
+        self.favor_bttn.setIconSize(QtCore.QSize(15, 15))
+        self.favor_bttn.setFlat(True)
+        horizontalLayout_6.addWidget(self.favor_bttn)
+
+        self.Attr_up_vLayout.addLayout(horizontalLayout_6)
+
+        self.Preview_frame = QtWidgets.QFrame()
+        _set_size_policy(self.Preview_frame, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.Preview_frame.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.Preview_frame.setFrameShadow(QtWidgets.QFrame.Raised)
+        verticalLayout_8 = QtWidgets.QVBoxLayout(self.Preview_frame)
+        verticalLayout_8.setSpacing(0)
+        verticalLayout_8.setSizeConstraint(QtWidgets.QLayout.SetDefaultConstraint)
+        verticalLayout_8.setContentsMargins(0, 0, 0, 0)
+        self.preview_vLayout = QtWidgets.QVBoxLayout()
+        verticalLayout_8.addLayout(self.preview_vLayout)
+        self.Attr_up_vLayout.addWidget(self.Preview_frame)
+
+        self.attr_splitter.addWidget(layoutWidget_3)
+
+        # 下半：File Type 面板 + Reference Switch 面板
+        layoutWidget_4 = QtWidgets.QWidget()
+        self.Attr_down_vLayout = QtWidgets.QVBoxLayout(layoutWidget_4)
+        self.Attr_down_vLayout.setSpacing(3)
+        self.Attr_down_vLayout.setContentsMargins(0, 0, 0, 0)
+        self.Attr_down_vLayout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+
+        verticalLayout_10 = QtWidgets.QVBoxLayout()
+        verticalLayout_10.setSpacing(2)
+
+        self.file_type_tbttn = QtWidgets.QToolButton()
+        _set_size_policy(self.file_type_tbttn, QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self.file_type_tbttn.setMaximumSize(QtCore.QSize(16777215, 18))
+        self.file_type_tbttn.setFont(_font(size=9))
+        self.file_type_tbttn.setStyleSheet(
+            u"background-color: rgb(100, 100, 100);\ncolor: rgb(200, 200, 200);")
+        self.file_type_tbttn.setText(u"File Type")
+        self.file_type_tbttn.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.file_type_tbttn.setAutoRaise(True)
+        self.file_type_tbttn.setArrowType(QtCore.Qt.DownArrow)
+        verticalLayout_10.addWidget(self.file_type_tbttn)
+
+        self.file_type_frame = QtWidgets.QFrame()
+        _set_size_policy(self.file_type_frame, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.file_type_frame.setMaximumSize(QtCore.QSize(16777215, 180))
+        self.file_type_frame.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.file_type_frame.setFrameShadow(QtWidgets.QFrame.Raised)
+        verticalLayout_11 = QtWidgets.QVBoxLayout(self.file_type_frame)
+        verticalLayout_11.setSpacing(0)
+        verticalLayout_11.setContentsMargins(2, 2, 2, 2)
+
+        self.fileType_groupBox = QtWidgets.QGroupBox()
+        _set_size_policy(self.fileType_groupBox, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.fileType_groupBox.setMaximumSize(QtCore.QSize(16777215, 100))
+        self.fileType_groupBox.setFont(_font())
+        self.fileType_groupBox.setTitle(u"")
+        self.fileType_groupBox.setAlignment(
+            QtCore.Qt.AlignLeading | QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        self.fileType_groupBox.setFlat(True)
+        gridLayout_4 = QtWidgets.QGridLayout(self.fileType_groupBox)
+        gridLayout_4.setContentsMargins(50, 0, 0, 0)
+        gridLayout_4.setSpacing(0)
+
+        # 文件类型单选按钮组（getCurrentItemsData() 依赖 self.fileType_bttnGroup）
+        self.fileType_bttnGroup = QtWidgets.QButtonGroup(self)
+
+        self.mod_rBttn = QtWidgets.QRadioButton()
+        self.mod_rBttn.setText(u"mod")
+        self.fileType_bttnGroup.addButton(self.mod_rBttn)
+        gridLayout_4.addWidget(self.mod_rBttn, 0, 0)
+
+        self.render_rBttn = QtWidgets.QRadioButton()
+        self.render_rBttn.setText(u"render")
+        self.fileType_bttnGroup.addButton(self.render_rBttn)
+        gridLayout_4.addWidget(self.render_rBttn, 0, 1)
+
+        self.allRig_rBttn = QtWidgets.QRadioButton()
+        self.allRig_rBttn.setText(u"all_rig")
+        self.fileType_bttnGroup.addButton(self.allRig_rBttn)
+        gridLayout_4.addWidget(self.allRig_rBttn, 1, 0)
+
+        self.hiRig_rBttn = QtWidgets.QRadioButton()
+        self.hiRig_rBttn.setText(u"hi_rig")
+        self.hiRig_rBttn.setChecked(True)
+        self.fileType_bttnGroup.addButton(self.hiRig_rBttn)
+        gridLayout_4.addWidget(self.hiRig_rBttn, 1, 1)
+
+        self.lowRig_rBttn = QtWidgets.QRadioButton()
+        self.lowRig_rBttn.setText(u"low_rig")
+        self.fileType_bttnGroup.addButton(self.lowRig_rBttn)
+        gridLayout_4.addWidget(self.lowRig_rBttn, 2, 0)
+
+        self.xgen_rBttn = QtWidgets.QRadioButton()
+        self.xgen_rBttn.setText(u"xgen")
+        self.fileType_bttnGroup.addButton(self.xgen_rBttn)
+        gridLayout_4.addWidget(self.xgen_rBttn, 2, 1)
+
+        self.ad_rBttn = QtWidgets.QRadioButton()
+        self.ad_rBttn.setText(u"AD")
+        self.fileType_bttnGroup.addButton(self.ad_rBttn)
+        gridLayout_4.addWidget(self.ad_rBttn, 3, 0)
+
+        self.oat_rBttn = QtWidgets.QRadioButton()
+        self.oat_rBttn.setText(u"OAT")
+        self.fileType_bttnGroup.addButton(self.oat_rBttn)
+        gridLayout_4.addWidget(self.oat_rBttn, 3, 1)
+
+        verticalLayout_11.addWidget(self.fileType_groupBox)
+
+        self.exportFbx_bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.exportFbx_bttn, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.exportFbx_bttn.setMinimumSize(QtCore.QSize(0, 25))
+        self.exportFbx_bttn.setMaximumSize(QtCore.QSize(16777215, 25))
+        self.exportFbx_bttn.setFont(_font(size=9))
+        self.exportFbx_bttn.setText(u"ExportFBX")
+        self.exportFbx_bttn.setCheckable(False)
+        self.exportFbx_bttn.setAutoExclusive(False)
+        verticalLayout_11.addWidget(self.exportFbx_bttn)
+
+        verticalLayout_10.addWidget(self.file_type_frame)
+        self.Attr_down_vLayout.addLayout(verticalLayout_10)
+
+        verticalLayout_2 = QtWidgets.QVBoxLayout()
+
+        self.switch_tbttn = QtWidgets.QToolButton()
+        _set_size_policy(self.switch_tbttn, QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self.switch_tbttn.setMaximumSize(QtCore.QSize(16777215, 18))
+        self.switch_tbttn.setFont(_font(size=9))
+        self.switch_tbttn.setStyleSheet(
+            u"background-color: rgb(100, 100, 100);\ncolor: rgb(200, 200, 200);")
+        self.switch_tbttn.setText(u"Reference Switch")
+        self.switch_tbttn.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.switch_tbttn.setAutoRaise(True)
+        self.switch_tbttn.setArrowType(QtCore.Qt.DownArrow)
+        verticalLayout_2.addWidget(self.switch_tbttn)
+
+        self.switch_frame = QtWidgets.QFrame()
+        _set_size_policy(self.switch_frame, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.switch_frame.setMaximumSize(QtCore.QSize(16777215, 60))
+        self.switch_frame.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.switch_frame.setFrameShadow(QtWidgets.QFrame.Sunken)
+        verticalLayout_5 = QtWidgets.QVBoxLayout(self.switch_frame)
+        verticalLayout_5.setSpacing(2)
+        verticalLayout_5.setSizeConstraint(QtWidgets.QLayout.SetDefaultConstraint)
+        verticalLayout_5.setContentsMargins(2, 2, 2, 2)
+
+        horizontalLayout_4 = QtWidgets.QHBoxLayout()
+        self.asset_all_rBttn = QtWidgets.QRadioButton()
+        self.asset_all_rBttn.setText(u"All")
+        self.asset_all_rBttn.setChecked(True)
+        horizontalLayout_4.addWidget(self.asset_all_rBttn, 0, QtCore.Qt.AlignHCenter)
+        self.asset_selected_rBttn = QtWidgets.QRadioButton()
+        self.asset_selected_rBttn.setText(u"Selected")
+        horizontalLayout_4.addWidget(self.asset_selected_rBttn, 0, QtCore.Qt.AlignLeft)
+        verticalLayout_5.addLayout(horizontalLayout_4)
+
+        horizontalLayout_5 = QtWidgets.QHBoxLayout()
+        horizontalLayout_5.setSpacing(5)
+        self.asset_switch_type_comb = QtWidgets.QComboBox()
+        self.asset_switch_type_comb.setMinimumSize(QtCore.QSize(0, 24))
+        self.asset_switch_type_comb.setMaximumSize(QtCore.QSize(16777215, 25))
+        self.asset_switch_type_comb.setStyleSheet(u"background-color: rgb(43, 43, 43);")
+        self.asset_switch_type_comb.addItem(u"all_rig")
+        self.asset_switch_type_comb.addItem(u"hi_rig")
+        self.asset_switch_type_comb.addItem(u"low_rig")
+        horizontalLayout_5.addWidget(self.asset_switch_type_comb, 1)
+
+        self.asset_ref_switch_bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.asset_ref_switch_bttn, QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self.asset_ref_switch_bttn.setMaximumSize(QtCore.QSize(110, 25))
+        self.asset_ref_switch_bttn.setFont(_font(family=u"SimSun"))
+        self.asset_ref_switch_bttn.setStyleSheet(u"background-color: rgb(93, 93, 93);")
+        self.asset_ref_switch_bttn.setText(u"Switch")
+        horizontalLayout_5.addWidget(self.asset_ref_switch_bttn, 1)
+
+        verticalLayout_5.addLayout(horizontalLayout_5)
+        verticalLayout_2.addWidget(self.switch_frame)
+        self.Attr_down_vLayout.addLayout(verticalLayout_2)
+
+        self.Attr_down_vLayout.addItem(QtWidgets.QSpacerItem(
+            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
+
+        self.attr_splitter.addWidget(layoutWidget_4)
+        self.mainWindow_splitter.addWidget(self.attr_splitter)
+
+        # ============ 组装顶层布局 ============
+        gridLayout_2.addWidget(self.mainWindow_splitter, 0, 0, 1, 1)
+        gridLayout_2.addLayout(msg_Layout, 1, 0, 1, 1)
+
     def init_ui(self):
         """初始化 UI"""
         self.firstView()
 
         # 左侧边栏
-        self.ui.project_comb.currentIndexChanged.connect(self.projectChanged)
-        self.ui.type_listWgt.itemSelectionChanged.connect(self.typeChanged)
-        self.ui.type_listWgt.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.ui.type_listWgt.customContextMenuRequested.connect(self.show_menu_type)
+        self.project_comb.currentIndexChanged.connect(self.projectChanged)
+        self.type_listWgt.itemSelectionChanged.connect(self.typeChanged)
+        self.type_listWgt.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.type_listWgt.customContextMenuRequested.connect(self.show_menu_type)
 
-        self.ui.Favorites_listWgt = faverWidget.FavoritesQListWiget(tab="Asset")
-        self.ui.type_splitter.addWidget(self.ui.Favorites_listWgt)
-        self.ui.type_splitter.setSizes([300, 500])
-        self.ui.Favorites_listWgt.itemSelectionChanged.connect(self.faveChanged)
+        self.Favorites_listWgt = faverWidget.FavoritesQListWiget(tab="Asset")
+        self.type_splitter.addWidget(self.Favorites_listWgt)
+        self.type_splitter.setSizes([300, 500])
+        self.Favorites_listWgt.itemSelectionChanged.connect(self.faveChanged)
 
         # 上侧工具栏
-        self.ui.back_bttn.setIcon(QtGui.QIcon('%s/icon/back.png' % self.scriptsPath))
-        self.ui.back_bttn.clicked.connect(self.backToMainWgt)
-        self.ui.add_bttn.setIcon(QtGui.QIcon('%s/icon/add.png' % self.scriptsPath))
-        self.ui.add_bttn.clicked.connect(self.add_asset_ui)
+        self.back_bttn.setIcon(QtGui.QIcon('%s/icon/back.png' % self.scriptsPath))
+        self.back_bttn.clicked.connect(self.backToMainWgt)
+        self.add_bttn.setIcon(QtGui.QIcon('%s/icon/add.png' % self.scriptsPath))
+        self.add_bttn.clicked.connect(self.add_asset_ui)
         self.get_viewThumbnail_btn()
-        self.ui.displayThumb_bttn.clicked.connect(self.viewModeChanged)
-        self.ui.itemSize_Slider.valueChanged.connect(self.itemSizeSliderChanged)
-        self.ui.itemSize_Slider.setToolTip(str(self.ui.itemSize_Slider.value()))
-        self.ui.itemSize_Slider.sliderReleased.connect(self.itemSizeSliderReleased)
-        self.ui.download_Bttn.setIcon(QtGui.QPixmap('%s/icon/download.png' % self.scriptsPath))
-        self.ui.download_Bttn.clicked.connect(self.download_asset)
-        self.ui.refresh_Bttn.setIcon(QtGui.QPixmap('%s/icon/refresh.png' % self.scriptsPath))
-        self.ui.refresh_Bttn.clicked.connect(self.refresh_asset)
-        self.ui.key_line.returnPressed.connect(self.search_asset)
-        self.ui.key_line.addAction(
+        self.displayThumb_bttn.clicked.connect(self.viewModeChanged)
+        self.itemSize_Slider.valueChanged.connect(self.itemSizeSliderChanged)
+        self.itemSize_Slider.setToolTip(str(self.itemSize_Slider.value()))
+        self.itemSize_Slider.sliderReleased.connect(self.itemSizeSliderReleased)
+        self.download_Bttn.setIcon(QtGui.QPixmap('%s/icon/download.png' % self.scriptsPath))
+        self.download_Bttn.clicked.connect(self.download_asset)
+        self.refresh_Bttn.setIcon(QtGui.QPixmap('%s/icon/refresh.png' % self.scriptsPath))
+        self.refresh_Bttn.clicked.connect(self.refresh_asset)
+        self.key_line.returnPressed.connect(self.search_asset)
+        self.key_line.addAction(
             QtGui.QIcon('%s/icon/search.png' % self.scriptsPath),
             QtWidgets.QLineEdit.LeadingPosition
         )
 
         # 主界面 - 使用新的高性能组件
         self.ui_main_wgt = am_main_optimized.MainStackedWidget(
-            db=self.ui.project_comb.currentText(),
+            db=self.project_comb.currentText(),
             tab="Asset",
             user=self.user,
             password=self.password,
@@ -131,71 +544,72 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.ui_main_wgt.itemSelectionChanged_connect(self.mainWightItemChanged)
         self.ui_main_wgt.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.ui_main_wgt.customContextMenuRequested.connect(self.show_menu)
-        self.ui.verticalLayout_3.addWidget(self.ui_main_wgt)
+        self.verticalLayout_3.addWidget(self.ui_main_wgt)
 
         # 应用滑块当前值作为初始缩略图尺寸。
         # firstView() 在本控件创建之前就把滑块设成了上次保存的 thumbSize，但那时
         # ui_main_wgt 还不存在、valueChanged 也未连接，故初值不会传入视图——
         # 不补这一步，首次打开图标恒为默认 120，不随滑块。须在 show_asset() 流式
         # 加载条目之前设好，使新建条目即采用正确尺寸。
-        self.ui_main_wgt.setItemSize(self.ui.itemSize_Slider.value())
+        self.ui_main_wgt.setItemSize(self.itemSize_Slider.value())
 
         # 设置分割器
-        self.ui.mainWindow_splitter.setSizes([120, 500, 300])
-        self.ui.mainWindow_splitter.setStretchFactor(0, False)
-        self.ui.mainWindow_splitter.setStretchFactor(1, True)
-        self.ui.mainWindow_splitter.setStretchFactor(2, False)
+        self.mainWindow_splitter.setSizes([120, 500, 300])
+        self.mainWindow_splitter.setStretchFactor(0, False)
+        self.mainWindow_splitter.setStretchFactor(1, True)
+        self.mainWindow_splitter.setStretchFactor(2, False)
 
         # 右侧属性栏
-        self.ui.attr_splitter.setStretchFactor(1, False)
-        self.ui.upload_Bttn.setIcon(QtGui.QIcon('%s/icon/cloud_upload.png' % self.scriptsPath))
-        self.ui.upload_Bttn.clicked.connect(self.addTagUI)
-        self.ui.favor_bttn.setIcon(QtGui.QIcon('%s/icon/unStar.png' % self.scriptsPath))
-        self.ui.favor_bttn.clicked.connect(self.addFavor)
-        self.ui.tag_bttn.setIcon(QtGui.QIcon('%s/icon/unTag.png' % self.scriptsPath))
-        self.ui.tag_bttn.clicked.connect(self.addTagUI)
+        self.attr_splitter.setStretchFactor(1, False)
+        self.attr_splitter.setSizes([300, 500])
+        self.upload_Bttn.setIcon(QtGui.QIcon('%s/icon/cloud_upload.png' % self.scriptsPath))
+        self.upload_Bttn.clicked.connect(self.addTagUI)
+        self.favor_bttn.setIcon(QtGui.QIcon('%s/icon/unStar.png' % self.scriptsPath))
+        self.favor_bttn.clicked.connect(self.addFavor)
+        self.tag_bttn.setIcon(QtGui.QIcon('%s/icon/unTag.png' % self.scriptsPath))
+        self.tag_bttn.clicked.connect(self.addTagUI)
         # FBX 三维预览(纯 Python 解析 + 自写 OpenGL,完全不碰 Maya 场景)。
         # 回退:改回 previewWidget.PreviewWidget() 即恢复原 icon 图片预览。
-        self.ui.preview = previewGLWidget.PreviewGLWidget()
-        self.ui.preview_vLayout.addWidget(self.ui.preview)
-        self.ui.preview.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.ui.preview.customContextMenuRequested.connect(self.show_menu_Preview_label)
-        self.ui.preview.playerEnabled(True)
+        self.preview = previewGLWidget.PreviewGLWidget()
+        self.preview_vLayout.addWidget(self.preview)
+        self.preview.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.preview.customContextMenuRequested.connect(self.show_menu_Preview_label)
+        self.preview.playerEnabled(True)
 
-        self.ui.file_type_tbttn.clicked.connect(self.file_type_clicked)
-        self.ui.exportFbx_bttn.clicked.connect(self.exportFbx)
-        self.ui.switch_tbttn.clicked.connect(self.switch_clicked)
-        self.ui.asset_ref_switch_bttn.clicked.connect(self.copyKey)
+        self.file_type_tbttn.clicked.connect(self.file_type_clicked)
+        self.exportFbx_bttn.clicked.connect(self.exportFbx)
+        self.switch_tbttn.clicked.connect(self.switch_clicked)
+        self.asset_ref_switch_bttn.clicked.connect(self.copyKey)
 
     def file_type_clicked(self):
         """切换文件类型面板"""
         if self.file_type_expanded:
-            self.ui.file_type_tbttn.setArrowType(QtCore.Qt.RightArrow)
-            self.ui.file_type_frame.setVisible(False)
+            self.file_type_tbttn.setArrowType(QtCore.Qt.RightArrow)
+            self.file_type_frame.setVisible(False)
             self.file_type_expanded = False
         else:
-            self.ui.file_type_tbttn.setArrowType(QtCore.Qt.DownArrow)
-            self.ui.file_type_frame.setVisible(True)
+            self.file_type_tbttn.setArrowType(QtCore.Qt.DownArrow)
+            self.file_type_frame.setVisible(True)
             self.file_type_expanded = True
 
     def switch_clicked(self):
         """切换引用面板"""
         if self.switch_expanded:
-            self.ui.switch_tbttn.setArrowType(QtCore.Qt.RightArrow)
-            self.ui.switch_frame.setVisible(False)
+            self.switch_tbttn.setArrowType(QtCore.Qt.RightArrow)
+            self.switch_frame.setVisible(False)
             self.switch_expanded = False
         else:
-            self.ui.switch_tbttn.setArrowType(QtCore.Qt.DownArrow)
-            self.ui.switch_frame.setVisible(True)
+            self.switch_tbttn.setArrowType(QtCore.Qt.DownArrow)
+            self.switch_frame.setVisible(True)
             self.switch_expanded = True
 
     def rememberSettings(self):
         """保存设置"""
         settings = QtCore.QSettings('Assets', 'AssetsSettings')
         settings.setValue('isList', self.isList)
-        settings.setValue('thumbSize', self.ui.itemSize_Slider.value())
-        settings.setValue('project', self.ui.project_comb.currentIndex())
-        settings.setValue('typ', self.ui.type_listWgt.currentRow())
+        settings.setValue('thumbSize', self.itemSize_Slider.value())
+        settings.setValue('project', self.project_comb.currentIndex())
+        settings.setValue('typ', self.type_listWgt.currentRow())
 
     def readSettings(self):
         """读取设置"""
@@ -216,24 +630,27 @@ class AssetToolsUI(QtWidgets.QWidget):
 
         thumbSize, project, typ = self.readSettings()
         if thumbSize is not None:
-            self.ui.itemSize_Slider.setValue(int(thumbSize))
+            self.itemSize_Slider.setValue(int(thumbSize))
         if project is not None:
-            self.ui.project_comb.setCurrentIndex(int(project))
+            self.project_comb.setCurrentIndex(int(project))
         else:
-            self.ui.project_comb.setCurrentIndex(0)
+            self.project_comb.setCurrentIndex(0)
         if typ is not None and typ != -1:
-            self.ui.type_listWgt.setCurrentRow(int(typ))
+            self.type_listWgt.setCurrentRow(int(typ))
         else:
-            self.ui.type_listWgt.setCurrentRow(0)
+            self.type_listWgt.setCurrentRow(0)
 
     def get_project(self):
         """获取项目列表"""
-        self.ui.project_comb.addItems(projectSetting()['projects'])
+        self.project_comb.addItems(projectSetting()['DataBase'])
 
     def get_type(self):
         """获取类型列表"""
-        self.ui.type_listWgt.clear()
-        for i in projectSetting()['type']:
+        self.type_listWgt.clear()
+        # 注意：这里的 type 会作为 SQL 里 "asset.type" = %s 的过滤值，
+        # 必须等于数据库 asset.type 列的真实值（如 Characters/Props），
+        # 不能用 ['Assets','Scenes']（那是顶层分类，DB 里无此 type → 查到 0 条）。
+        for i in ["Characters", "Props"]:
             item = QtWidgets.QListWidgetItem()
             item.setText(str(i))
             icon = QtGui.QIcon()
@@ -241,15 +658,15 @@ class AssetToolsUI(QtWidgets.QWidget):
             pixmap.setColor(QtGui.QColor("#b3b3b3"))
             icon.addPixmap(pixmap, QtGui.QIcon.Normal, QtGui.QIcon.Off)
             item.setIcon(icon)
-            self.ui.type_listWgt.addItem(item)
+            self.type_listWgt.addItem(item)
 
     def currentProject(self):
         """获取当前项目"""
-        return str(self.ui.project_comb.currentText())
+        return str(self.project_comb.currentText())
 
     def currentType(self):
         """获取当前类型"""
-        items = self.ui.type_listWgt.selectedItems()
+        items = self.type_listWgt.selectedItems()
         return str(items[0].text()) if items else ""
 
     @staticmethod
@@ -269,21 +686,21 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def typeChanged(self):
         """类型改变"""
-        if self.ui.type_listWgt.currentRow() != -1:
+        if self.type_listWgt.currentRow() != -1:
             self.rememberSettings()
             self.show_asset()
-            self.ui.Favorites_listWgt.setCurrentRow(-1)
+            self.Favorites_listWgt.setCurrentRow(-1)
 
     def faveChanged(self):
         """收藏改变"""
-        if self.ui.Favorites_listWgt.currentRow() != -1:
-            self.ui.type_listWgt.setCurrentRow(-1)
+        if self.Favorites_listWgt.currentRow() != -1:
+            self.type_listWgt.setCurrentRow(-1)
             self.ui_main_wgt.clear()
-            if self.ui.Favorites_listWgt.currentRow() == 0:
-                data = self.ui.Favorites_listWgt.get_favor_items()
+            if self.Favorites_listWgt.currentRow() == 0:
+                data = self.Favorites_listWgt.get_favor_items()
             else:
-                select = self.ui.Favorites_listWgt.selectedItems()[0].text()
-                data = self.ui.Favorites_listWgt.get_tag_items(select)
+                select = self.Favorites_listWgt.selectedItems()[0].text()
+                data = self.Favorites_listWgt.get_tag_items(select)
             self.ui_main_wgt.setItemsList(data)
             self.ui_main_wgt.addItems(self.get_keywords())
 
@@ -339,7 +756,7 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def get_keywords(self):
         """获取关键词"""
-        return [self.ui.key_line.text().strip()]
+        return [self.key_line.text().strip()]
 
     def search_asset(self):
         """搜索资产"""
@@ -355,8 +772,8 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def getPanelsData(self):
         """获取面板数据"""
-        __project = str(self.ui.project_comb.currentText())
-        __type = str(self.ui.type_listWgt.selectedItems()[0].text())
+        __project = str(self.project_comb.currentText())
+        __type = str(self.type_listWgt.selectedItems()[0].text())
         __path = '%s/%s/%s/%s' % (
             self.ROOT, __project,
             projectSetting()['assetFolder'], __type
@@ -366,7 +783,7 @@ class AssetToolsUI(QtWidgets.QWidget):
     def getCurrentItemsData(self):
         """获取当前选中项数据"""
         __item = self.ui_main_wgt.selectedItems()
-        __fileType = self.ui.fileType_bttnGroup.checkedButton().text()
+        __fileType = self.fileType_bttnGroup.checkedButton().text()
         __folder = self.__fileTypeFolderDict[__fileType]
         if not __item:
             return None
@@ -375,19 +792,19 @@ class AssetToolsUI(QtWidgets.QWidget):
     def mainWightItemChanged(self):
         """主面板选择项改变"""
         currentSelected = self.ui_main_wgt.selectedItems()
-        self.ui.preview.clear()
+        self.preview.clear()
 
         if currentSelected:
             # 启用/禁用按钮
             rBttn_dict = {
-                'mod': self.ui.mod_rBttn,
-                'hi_rig': self.ui.hiRig_rBttn,
-                'low_rig': self.ui.lowRig_rBttn,
-                'all_rig': self.ui.allRig_rBttn,
-                'render': self.ui.render_rBttn,
-                'xgen': self.ui.xgen_rBttn,
-                'AD': self.ui.ad_rBttn,
-                'OAT': self.ui.oat_rBttn
+                'mod': self.mod_rBttn,
+                'hi_rig': self.hiRig_rBttn,
+                'low_rig': self.lowRig_rBttn,
+                'all_rig': self.allRig_rBttn,
+                'render': self.render_rBttn,
+                'xgen': self.xgen_rBttn,
+                'AD': self.ad_rBttn,
+                'OAT': self.oat_rBttn
             }
 
             for btn in rBttn_dict.values():
@@ -400,10 +817,10 @@ class AssetToolsUI(QtWidgets.QWidget):
                 item_data = currentSelected[0].itemData()
 
             if item_data:
-                self.ui.preview.setTitle(item_data[1], item_data[2])
+                self.preview.setTitle(item_data[1], item_data[2])
 
                 if not self.isAction:
-                    self.ui.preview.setPreviewPixmap(item_data[7], "asset_ch")
+                    self.preview.setPreviewPixmap(item_data[7], "asset_ch")
 
                 # 检查文件是否存在
                 for ty, btn in rBttn_dict.items():
@@ -444,28 +861,28 @@ class AssetToolsUI(QtWidgets.QWidget):
     def get_viewThumbnail_btn(self):
         """获取视图按钮状态"""
         if self.isList:
-            self.ui.displayThumb_bttn.setIcon(QtGui.QIcon('%s/icon/display_icon.png' % self.scriptsPath))
-            self.ui.displayThumb_bttn.setToolTip("缩略图显示")
+            self.displayThumb_bttn.setIcon(QtGui.QIcon('%s/icon/display_icon.png' % self.scriptsPath))
+            self.displayThumb_bttn.setToolTip("缩略图显示")
         else:
-            self.ui.displayThumb_bttn.setIcon(QtGui.QIcon('%s/icon/display_list.png' % self.scriptsPath))
-            self.ui.displayThumb_bttn.setToolTip("表单显示")
+            self.displayThumb_bttn.setIcon(QtGui.QIcon('%s/icon/display_list.png' % self.scriptsPath))
+            self.displayThumb_bttn.setToolTip("表单显示")
 
     def viewModeChanged(self):
         """切换视图模式"""
         keyWords = self.get_keywords()
-        itemSize = self.ui.itemSize_Slider.value()
+        itemSize = self.itemSize_Slider.value()
 
         if self.isList:
             # 切换到缩略图模式
-            self.ui.displayThumb_bttn.setIcon(QtGui.QIcon('%s/icon/display_list.png' % self.scriptsPath))
-            self.ui.displayThumb_bttn.setToolTip("表单显示")
+            self.displayThumb_bttn.setIcon(QtGui.QIcon('%s/icon/display_list.png' % self.scriptsPath))
+            self.displayThumb_bttn.setToolTip("表单显示")
             self.isList = False
             self.ui_main_wgt.setIsList(False)
             self.ui_main_wgt.setIconMode(itemSize, keyWords)
         else:
             # 切换到列表模式
-            self.ui.displayThumb_bttn.setIcon(QtGui.QIcon('%s/icon/display_icon.png' % self.scriptsPath))
-            self.ui.displayThumb_bttn.setToolTip("缩略图显示")
+            self.displayThumb_bttn.setIcon(QtGui.QIcon('%s/icon/display_icon.png' % self.scriptsPath))
+            self.displayThumb_bttn.setToolTip("缩略图显示")
             self.isList = True
             self.ui_main_wgt.setIsList(True)
             self.ui_main_wgt.setListMode(keyWords)
@@ -474,7 +891,7 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def itemSizeSliderChanged(self):
         """滑块值改变"""
-        itemSize = self.ui.itemSize_Slider.value()
+        itemSize = self.itemSize_Slider.value()
         if self.isList:
             return
         else:
@@ -483,16 +900,16 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def itemSizeSliderReleased(self):
         """滑块释放"""
-        itemSize = self.ui.itemSize_Slider.value()
-        self.ui.itemSize_Slider.setToolTip(u"%s" % itemSize)
+        itemSize = self.itemSize_Slider.value()
+        self.itemSize_Slider.setToolTip(u"%s" % itemSize)
         self.rememberSettings()
 
     # ============ 右键菜单 ============
 
     def show_menu_type(self, point):
         """类型列表右键菜单"""
-        currentItem = self.ui.type_listWgt.itemAt(point)
-        menu = QtWidgets.QMenu(self.ui.type_listWgt)
+        currentItem = self.type_listWgt.itemAt(point)
+        menu = QtWidgets.QMenu(self.type_listWgt)
         if currentItem is None:
             addFolder_action = QtWidgets.QAction(u'新建文件夹', self)
             addFolder_action.setIcon(QtGui.QIcon("%s/icon/folderPlus.png" % self.scriptsPath))
@@ -610,7 +1027,7 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def _add_folder(self):
         """添加文件夹"""
-        project = self.ui.project_comb.currentText()
+        project = self.project_comb.currentText()
         path = '{0}/{1}/Scenes'.format(self.ROOT, project)
         res = self.Pub.create_new_folder(self, path)
         if res:
@@ -620,8 +1037,8 @@ class AssetToolsUI(QtWidgets.QWidget):
             _icon = QtGui.QIcon()
             _icon.addPixmap(_pixmap, QtGui.QIcon.Normal, QtGui.QIcon.Off)
             _item.setIcon(_icon)
-            self.ui.type_listWgt.addItem(_item)
-            self.ui.type_listWgt.setCurrentItem(_item)
+            self.type_listWgt.addItem(_item)
+            self.type_listWgt.setCurrentItem(_item)
 
     def addFavor(self):
         """添加收藏"""
@@ -631,10 +1048,10 @@ class AssetToolsUI(QtWidgets.QWidget):
             item = currentSelected[0]
             if not item.isFavor():
                 item.setFavor(True)
-                self.ui.favor_bttn.setIcon(QtGui.QIcon('%s/icon/star.png' % self.scriptsPath))
+                self.favor_bttn.setIcon(QtGui.QIcon('%s/icon/star.png' % self.scriptsPath))
             else:
                 item.setFavor(False)
-                self.ui.favor_bttn.setIcon(QtGui.QIcon('%s/icon/unStar.png' % self.scriptsPath))
+                self.favor_bttn.setIcon(QtGui.QIcon('%s/icon/unStar.png' % self.scriptsPath))
 
     def addTagUI(self):
         """添加标签 UI"""
@@ -650,7 +1067,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         bttnBox = QtWidgets.QDialogButtonBox(Dialog)
         bttnBox.setOrientation(QtCore.Qt.Horizontal)
         bttnBox.setStandardButtons(QtWidgets.QDialogButtonBox.Cancel | QtWidgets.QDialogButtonBox.Ok)
-        tag_list = self.ui.Favorites_listWgt.readTagDict().keys()
+        tag_list = self.Favorites_listWgt.readTagDict().keys()
         comb.addItems(tag_list)
         lay = QtWidgets.QGridLayout(Dialog)
         lay.setContentsMargins(10, 5, 10, 10)
@@ -668,13 +1085,13 @@ class AssetToolsUI(QtWidgets.QWidget):
             if currentSelected:
                 currentSelected[0].setTag(tag)
                 if tag == "":
-                    self.ui.tag_bttn.setIcon(QtGui.QIcon('%s/icon/unTag.png' % self.scriptsPath))
+                    self.tag_bttn.setIcon(QtGui.QIcon('%s/icon/unTag.png' % self.scriptsPath))
                 else:
-                    self.ui.tag_bttn.setIcon(QtGui.QIcon('%s/icon/tag.png' % self.scriptsPath))
+                    self.tag_bttn.setIcon(QtGui.QIcon('%s/icon/tag.png' % self.scriptsPath))
                     _item = QtWidgets.QListWidgetItem(tag)
                     _icon = QtGui.QIcon(QtGui.QPixmap('%s/icon/tag.png' % self.scriptsPath))
                     _item.setIcon(_icon)
-                    self.ui.Favorites_listWgt.addItem(_item)
+                    self.Favorites_listWgt.addItem(_item)
             Dialog.close()
 
         bttnBox.accepted.connect(_addTag)
@@ -683,12 +1100,12 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def backToMainWgt(self):
         """返回主面板"""
-        self.ui.preview.clear()
-        self.ui.preview.playerEnabled(False)
+        self.preview.clear()
+        self.preview.playerEnabled(False)
         self.isAction = False
         self.refresh_asset()
-        self.ui.back_bttn.setEnabled(False)
-        self.ui.itemSize_Slider.setEnabled(True)
+        self.back_bttn.setEnabled(False)
+        self.itemSize_Slider.setEnabled(True)
 
     def update_action(self):
         """更新动作库"""
@@ -995,5 +1412,5 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def infoMsg(self, icon, text):
         """显示消息"""
-        messageBox.show_msg(self.ui.msg_icon_label, icon,
-                           self.ui.msg_label, text)
+        messageBox.show_msg(self.msg_icon_label, icon,
+                           self.msg_label, text)

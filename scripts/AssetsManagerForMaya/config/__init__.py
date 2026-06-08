@@ -11,6 +11,7 @@ scriptsPath = os.path.split(os.path.realpath(__file__))[0].replace('\\', '/')
 
 
 def am_Temp():
+    """AM的临时文件夹"""
     path = os.getenv('APPDATA') or os.getenv('HOME')
     TempPath = os.path.join(path, "AssetsManagerTemp")
     if not os.path.exists(TempPath):
@@ -19,20 +20,17 @@ def am_Temp():
 
 
 def sm_Temp():
+    """SM的临时文件夹"""
     path = os.getenv('APPDATA') or os.getenv('HOME')
     TempPath = os.path.join(path, "ShotManagerTemp")
-    # TEMP = "{}/ShotManagerTemp".format(os.environ.get('APPDATA')) or os.getenv('HOME')
     if not os.path.exists(TempPath):
         os.mkdir(TempPath)
     return TempPath
 
 
-def serverTempPath():
-    return 'Y:/ACTools/tools/sm_config'
-
-
 def projectSetting():
-    Json = '%s/projectSetting.json' % scriptsPath
+    """通用设置"""
+    Json = 'Y:/MCCTools/config/ShotManager_config/commonSetting.json'
     if os.path.exists(Json):
         f = open(Json, 'rb')
         data = f.read()
@@ -49,6 +47,7 @@ def projectSetting():
 
 
 class SMConfig(object):
+    """SM的配置档"""
     CONFIGS_STORAGE = {}
 
     def __init__(self, *args, **kwargs):
@@ -75,10 +74,6 @@ class SMConfig(object):
 
     def setPrefsValue(self, valueKey, value):
         section, key = valueKey.split("/")
-        # settings = self.getSettings("PREFS")
-        # settings.beginGroup(section)
-        # settings.setValue(key, value)
-        # settings.endGroup()
         config = configparser.ConfigParser()
         config[section] = {key: value}
 
@@ -90,10 +85,6 @@ class SMConfig(object):
 
     def setConfigValue(self, valueKey, value):
         section, key = valueKey.split("/")
-        # settings = self.getSettings("CONFIG")
-        # settings.beginGroup(section)
-        # settings.setValue(key, value)
-        # settings.endGroup()
         config = configparser.ConfigParser()
         config[section] = {key: value}
 

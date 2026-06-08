@@ -8,7 +8,7 @@ import maya.cmds as cmds
 import os
 import uuid
 import json
-from config import projectSetting, am_Temp, SMConfig
+from config import projectSetting, sm_Temp, am_Temp, SMConfig
 
 import psycopg2
 
@@ -78,10 +78,8 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     scriptsPath = os.path.split(os.path.realpath(__file__))[0].replace('\\', '/')
     MYPREFSDIR = cmds.internalVar(userPrefDir=True)  # Result: u'C:/Users/asus/Documents/maya/2019/prefs/'
     MAYADir = os.environ.get('MAYA_APP_DIR')  # Result: 'C:/Users/asus/Documents/maya'
-    tempPath = am_Temp()  # Result: 'C:/Users/asus/AppData/'
-    sm_temp = "{}/ShotManagerTemp".format(os.environ.get('APPDATA'))
-    SM_SETTING_JSON = "{}/setting.json".format(sm_temp)
-    VERSION = "4.0.1"
+    SM_SETTING_JSON = "{}/setting.json".format(sm_Temp())  # 旧版的把登录设置在这里
+    VERSION = "5.0.1"
     user_list = list(projectSetting()["user_list"].values())
 
     def __init__(self, parent=maya_main_window()):
@@ -95,22 +93,14 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.setWindowTitle('Asset Manager ' + self.VERSION)
         self.setWindowIcon(QtGui.QIcon('%s/icon/blank_ch.png' % self.scriptsPath))
 
-        # self.List = list_items
-        # self.isFloating = False
-
-        self.isSQL = self.is_SQL()
-
-        self.ui = None
-        self.mini_ui = None
         self.isMini = False
         self.readSettings()
 
         self.host = SMConfig().getPrefsValue("General/ip", "10.0.203.34")
-        try:
+        try:  # 优先读取am_maya自己的登录设置，读取失败再读取SMConfig的设置（兼容之前版本的登录设置）
             self.user = self.readLoginSetting()['user']
             self.password = self.readLoginSetting()['password']
         except Exception as e:
-            print(e)
             self.user = SMConfig().getPrefsValue("Info/user", "")
             self.password = SMConfig().getPrefsValue("Info/password", "")
 
@@ -129,37 +119,39 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         # cmds.workspaceControl(name , e=1, cc = self.closeEvent())
 
     def init_ui(self):
-        """主程序外观界面"""
-        f = QtCore.QFile('%s/ui/AssetsManager.ui' % self.scriptsPath)
-        f.open(QtCore.QFile.ReadOnly)
-        loader = QtUiTools.QUiLoader().load(f)
-        self.ui = loader
-        f.close()
-        self.setCentralWidget(self.ui)
+        """主程序外观界面（原 ui/AssetsManager.ui，改为代码构建）"""
+        self.setupMainUi()
+        # 解除 mini 模式对窗口尺寸的固定约束，恢复主界面可自由缩放
+        self.setMinimumSize(QtCore.QSize(0, 0))
+        self.setMaximumSize(QtCore.QSize(16777215, 16777215))  # QWIDGETSIZE_MAX
         '''风格外观'''
         pos, size, tab = self.readSettings()
         # print(pos, size, tab)
         if pos is not None and size is not None:
             self.resize(size)
             self.move(pos)
+            win_w, win_h = size.width(), size.height()
         else:
             self.resize(950, 600)
             self.move(2000, 120)
+            win_w, win_h = 950, 600
+        # 浮动模式下，承载窗口(workspaceControl 浮动面板)也要跟随主界面尺寸放大回来
+        self._resizeFloatingWindow(win_w, win_h)
 
         if tab is not None:
-            self.ui.tabWidget.setCurrentIndex(tab)
+            self.tabWidget.setCurrentIndex(tab)
         else:
-            self.ui.tabWidget.setCurrentIndex(0)
-        self.getStyleSheet()
+            self.tabWidget.setCurrentIndex(0)
+        # self.getStyleSheet()
         '''角标栏'''
-        self.ui.login_bttn = QtWidgets.QPushButton(self)
-        self.ui.login_bttn.setIcon(QtGui.QIcon("%s/icon/user.png" % self.scriptsPath))
-        self.ui.login_bttn.setMinimumWidth(100)
-        self.ui.login_bttn.setFont(self.font)
-        self.ui.setting_bttn = QtWidgets.QPushButton()
-        self.ui.setting_bttn.setIcon(QtGui.QIcon('%s/icon/setting.png' % self.scriptsPath))
-        self.ui.setting_bttn.setFlat(True)
-        self.ui.setting_bttn.clicked.connect(self.toolSetting_UI)
+        self.login_bttn = QtWidgets.QPushButton(self)
+        self.login_bttn.setIcon(QtGui.QIcon("%s/icon/user.png" % self.scriptsPath))
+        self.login_bttn.setMinimumWidth(100)
+        self.login_bttn.setFont(self.font)
+        self.setting_bttn = QtWidgets.QPushButton()
+        self.setting_bttn.setIcon(QtGui.QIcon('%s/icon/setting.png' % self.scriptsPath))
+        self.setting_bttn.setFlat(True)
+        self.setting_bttn.clicked.connect(self.toolSetting_UI)
         user_menu = QtWidgets.QMenu(self)
         action_c = QtWidgets.QAction(u"登录", self)
         action_c.triggered.connect(self.login_UI)
@@ -171,54 +163,143 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         user_menu.addSeparator()
         user_menu.addAction(action_a)
         user_menu.addAction(action_b)
-        self.ui.login_bttn.setMenu(user_menu)
+        self.login_bttn.setMenu(user_menu)
 
         hLayout = QtWidgets.QHBoxLayout()
         hLayout.setContentsMargins(0, 3, 10, 0)
-        hLayout.addWidget(self.ui.login_bttn)
-        hLayout.addWidget(self.ui.setting_bttn)
+        hLayout.addWidget(self.login_bttn)
+        hLayout.addWidget(self.setting_bttn)
         Frame = QtWidgets.QFrame(self)
         Frame.setLayout(hLayout)
-        self.ui.tabWidget.setCornerWidget(Frame, corner=QtCore.Qt.TopRightCorner)
+        self.tabWidget.setCornerWidget(Frame, corner=QtCore.Qt.TopRightCorner)
 
         shrink_btn = QtWidgets.QPushButton()
         shrink_btn.setIcon(QtGui.QIcon('%s/icon/shrink.png' % self.scriptsPath))
         shrink_btn.setFlat(True)
         shrink_btn.setMaximumSize(QtCore.QSize(11, 11))
         shrink_btn.clicked.connect(self.shrinkWin)
-        self.ui.tabWidget.setCornerWidget(shrink_btn, corner=QtCore.Qt.TopLeftCorner)
+        self.tabWidget.setCornerWidget(shrink_btn, corner=QtCore.Qt.TopLeftCorner)
 
         if self.user != "" and self.password != "":
-            self.ui.login_bttn.setText(self.user)
+            self.login_bttn.setText(self.user)
         else:
-            self.ui.login_bttn.setText(u"未登录")
+            self.login_bttn.setText(u"未登录")
 
-        # self.ui.tabWidget.setTabIcon(0, QtGui.QPixmap('%s/icon/miniSetting.png' % self.scriptsPath))  # 可以的但并不好看
+        # self.tabWidget.setTabIcon(0, QtGui.QPixmap('%s/icon/miniSetting.png' % self.scriptsPath))  # 可以的但并不好看
         self.tabChanged()
-        self.ui.tabWidget.currentChanged.connect(self.tabChanged)
+        self.tabWidget.currentChanged.connect(self.tabChanged)
 
         # name = self.workspaceControlName()
         # print(name)# None
 
+    def setupMainUi(self):
+        """构建主界面控件"""
+        centralwidget = QtWidgets.QWidget()
+        centralwidget.setMinimumSize(QtCore.QSize(300, 40))
+        gridLayout_10 = QtWidgets.QGridLayout(centralwidget)
+        gridLayout_10.setContentsMargins(0, 0, 0, 0)
+        gridLayout_10.setSpacing(0)
+        gridLayout_2 = QtWidgets.QGridLayout()
+        # 原 .ui 仅设置 topMargin=0，其余边距沿用默认（-1 表示默认）。
+        gridLayout_2.setContentsMargins(-1, 0, -1, -1)
+        gridLayout_2.setSpacing(0)
+
+        self.tabWidget = QtWidgets.QTabWidget(centralwidget)
+        font = QtGui.QFont()
+        font.setFamily(u"Microsoft YaHei UI")
+        font.setPointSize(10)
+        self.tabWidget.setFont(font)
+        self.tabWidget.setTabPosition(QtWidgets.QTabWidget.North)
+        self.tabWidget.setTabShape(QtWidgets.QTabWidget.Rounded)
+        self.tabWidget.setUsesScrollButtons(True)
+        self.tabWidget.setDocumentMode(False)
+        self.tabWidget.setTabsClosable(False)
+
+        # asset_page（唯一显式设置 sizePolicy 的标签页）
+        self.asset_page = QtWidgets.QWidget()
+        sizePolicy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        )
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.asset_page.sizePolicy().hasHeightForWidth())
+        self.asset_page.setSizePolicy(sizePolicy)
+        gridLayout_4 = QtWidgets.QGridLayout(self.asset_page)
+        gridLayout_4.setContentsMargins(2, 3, 2, 0)
+        gridLayout_4.setSpacing(0)
+        self.tabWidget.addTab(self.asset_page, u"Asset")
+
+        # sets_page
+        self.sets_page = QtWidgets.QWidget()
+        gridLayout_9 = QtWidgets.QGridLayout(self.sets_page)
+        gridLayout_9.setContentsMargins(2, 3, 2, 0)
+        gridLayout_9.setSpacing(0)
+        self.tabWidget.addTab(self.sets_page, u"Scene")
+
+        # action_page
+        self.action_page = QtWidgets.QWidget()
+        gridLayout_13 = QtWidgets.QGridLayout(self.action_page)
+        gridLayout_13.setContentsMargins(2, 3, 2, 0)
+        gridLayout_13.setSpacing(0)
+        self.tabWidget.addTab(self.action_page, u"Action")
+
+        # idea_page
+        self.idea_page = QtWidgets.QWidget()
+        gridLayout = QtWidgets.QGridLayout(self.idea_page)
+        gridLayout.setContentsMargins(2, 3, 2, 0)
+        gridLayout.setSpacing(0)
+        self.tabWidget.addTab(self.idea_page, u"Shot")
+
+        # mod_page
+        self.mod_page = QtWidgets.QWidget()
+        gridLayout_5 = QtWidgets.QGridLayout(self.mod_page)
+        gridLayout_5.setContentsMargins(2, 3, 2, 0)
+        gridLayout_5.setSpacing(0)
+        self.tabWidget.addTab(self.mod_page, u"Model")
+
+        # rig_page
+        self.rig_page = QtWidgets.QWidget()
+        gridLayout_6 = QtWidgets.QGridLayout(self.rig_page)
+        gridLayout_6.setContentsMargins(2, 3, 2, 0)
+        gridLayout_6.setSpacing(0)
+        self.tabWidget.addTab(self.rig_page, u"Rig")
+
+        # xgen_page
+        self.xgen_page = QtWidgets.QWidget()
+        gridLayout_8 = QtWidgets.QGridLayout(self.xgen_page)
+        gridLayout_8.setContentsMargins(2, 3, 2, 0)
+        gridLayout_8.setSpacing(0)
+        self.tabWidget.addTab(self.xgen_page, u"XGen")
+
+        # sim_page
+        self.sim_page = QtWidgets.QWidget()
+        gridLayout_7 = QtWidgets.QGridLayout(self.sim_page)
+        gridLayout_7.setContentsMargins(2, 3, 2, 0)
+        gridLayout_7.setSpacing(0)
+        self.tabWidget.addTab(self.sim_page, u"Sim")
+
+        gridLayout_2.addWidget(self.tabWidget, 0, 0, 1, 1)
+        gridLayout_10.addLayout(gridLayout_2, 0, 0, 1, 1)
+        self.setCentralWidget(centralwidget)
+
     def init_ui_mini(self):
-        mini_f = QtCore.QFile('%s/ui/AssetsManager_mini.ui' % self.scriptsPath)
-        mini_f.open(QtCore.QFile.ReadOnly)
-        loader = QtUiTools.QUiLoader().load(mini_f)
-        self.mini_ui = loader
-        mini_f.close()
-        self.setCentralWidget(self.mini_ui)
+        """mini 搜索条外观界面（原 ui/AssetsManager_mini.ui，改为代码构建）"""
+        self.setupMiniUi()
         '''风格外观'''
         pos, size, tab = self.readSettings()
         if pos is not None:
             self.move(pos)
+        self.setFixedHeight(41)
+        self.setMinimumWidth(200)
         self.resize(350, 41)
-        self.mini_ui.key_line.addAction(QtGui.QIcon('%s/icon/search.png' % self.scriptsPath),
-                                        QtWidgets.QLineEdit.LeadingPosition)
-        self.mini_ui.shrink_bttn.setIcon(QtGui.QIcon('%s/icon/shrink.png' % self.scriptsPath))
-        self.mini_ui.shrink_bttn.clicked.connect(self.shrinkWin)
-        self.mini_ui.miniSetting_bttn.setIcon(QtGui.QIcon('%s/icon/miniSetting.png' % self.scriptsPath))
-        # self.mini_ui.miniSetting_bttn.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        # self.mini_ui.miniSetting_bttn.customContextMenuRequested.connect(self.miniSetting_UI)
+        self._resizeFloatingWindow(350, 41)
+        self.key_line.addAction(QtGui.QIcon('%s/icon/search.png' % self.scriptsPath),
+                                QtWidgets.QLineEdit.LeadingPosition)
+        self.shrink_bttn.setIcon(QtGui.QIcon('%s/icon/shrink.png' % self.scriptsPath))
+        self.shrink_bttn.clicked.connect(self.shrinkWin)
+        self.miniSetting_bttn.setIcon(QtGui.QIcon('%s/icon/miniSetting.png' % self.scriptsPath))
+        # self.miniSetting_bttn.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        # self.miniSetting_bttn.customContextMenuRequested.connect(self.miniSetting_UI)
 
         self.setting_menu = QtWidgets.QMenu()
         self.action_a = QtWidgets.QAction(u"Assets", self)
@@ -229,9 +310,110 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.action_b.setChecked(True)
         self.setting_menu.addAction(self.action_a)
         self.setting_menu.addAction(self.action_b)
-        self.mini_ui.miniSetting_bttn.setMenu(self.setting_menu)
+        self.miniSetting_bttn.setMenu(self.setting_menu)
 
-        self.mini_ui.key_line.returnPressed.connect(self.miniSearch)
+        self.key_line.returnPressed.connect(self.miniSearch)
+
+    def setupMiniUi(self):
+        """构建 mini 搜索条控件"""
+        centralwidget = QtWidgets.QWidget()
+        sizePolicy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(centralwidget.sizePolicy().hasHeightForWidth())
+        centralwidget.setSizePolicy(sizePolicy)
+        # 高度固定 40，宽度可自由拉伸（不再锁死 350），让窗口能横向延展
+        centralwidget.setMinimumSize(QtCore.QSize(200, 40))
+        centralwidget.setMaximumSize(QtCore.QSize(16777215, 40))
+
+        verticalLayout_2 = QtWidgets.QVBoxLayout(centralwidget)
+        verticalLayout_2.setSpacing(0)
+        verticalLayout_2.setContentsMargins(1, 1, 1, 0)
+        verticalLayout = QtWidgets.QVBoxLayout()
+        verticalLayout.setSpacing(0)
+        horizontalLayout = QtWidgets.QHBoxLayout()
+
+        self.shrink_bttn = QtWidgets.QPushButton(centralwidget)
+        sizePolicy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
+        )
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.shrink_bttn.sizePolicy().hasHeightForWidth())
+        self.shrink_bttn.setSizePolicy(sizePolicy)
+        self.shrink_bttn.setMaximumSize(QtCore.QSize(12, 12))
+        self.shrink_bttn.setText("")
+        self.shrink_bttn.setIconSize(QtCore.QSize(12, 12))
+        self.shrink_bttn.setFlat(True)
+        horizontalLayout.addWidget(self.shrink_bttn)
+
+        spacerItem = QtWidgets.QSpacerItem(
+            20, 13, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum
+        )
+        horizontalLayout.addItem(spacerItem)
+
+        self.miniSetting_bttn = QtWidgets.QPushButton(centralwidget)
+        sizePolicy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
+        )
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.miniSetting_bttn.sizePolicy().hasHeightForWidth())
+        self.miniSetting_bttn.setSizePolicy(sizePolicy)
+        self.miniSetting_bttn.setMinimumSize(QtCore.QSize(12, 12))
+        self.miniSetting_bttn.setMaximumSize(QtCore.QSize(12, 12))
+        self.miniSetting_bttn.setText("")
+        self.miniSetting_bttn.setIconSize(QtCore.QSize(12, 12))
+        self.miniSetting_bttn.setFlat(True)
+        horizontalLayout.addWidget(self.miniSetting_bttn)
+
+        verticalLayout.addLayout(horizontalLayout)
+
+        self.key_line = QtWidgets.QLineEdit(centralwidget)
+        sizePolicy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+        )
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.key_line.sizePolicy().hasHeightForWidth())
+        self.key_line.setSizePolicy(sizePolicy)
+        # 高度固定 25，宽度随窗口拉伸延展（不再锁死 350）
+        self.key_line.setMinimumSize(QtCore.QSize(25, 25))
+        self.key_line.setMaximumSize(QtCore.QSize(16777215, 25))
+        self.key_line.setPlaceholderText(u"Search...")
+        self.key_line.setClearButtonEnabled(True)
+        verticalLayout.addWidget(self.key_line)
+
+        verticalLayout_2.addLayout(verticalLayout)
+        self.setCentralWidget(centralwidget)
+
+    def _resizeFloatingWindow(self, width, height):
+        """浮动(workspaceControl)模式下，把承载窗口收缩/放大到指定尺寸"""
+        name = self.workspaceControlName()
+        if not name:
+            return  # workspaceControl 尚未创建（如首次 show 之前），无需处理
+        try:
+            if not cmds.workspaceControl(name, q=True, exists=True):
+                return
+            if not cmds.workspaceControl(name, q=True, floating=True):
+                return  # 停靠状态不处理
+        except Exception as e:
+            print(e)
+            return
+        # 部分 Maya 版本的 workspaceControl 支持 resize 编辑标志，失败也无妨
+        try:
+            cmds.workspaceControl(name, e=True, resizeWidth=int(width), resizeHeight=int(height))
+        except Exception:
+            pass
+        # 直接收缩/放大承载 workspaceControl 的顶层浮动窗口
+        try:
+            top = self.window()
+            if top is not None:
+                top.resize(int(width), int(height))
+        except Exception as e:
+            print(e)
 
     def rememberSettings(self):
         """ 写入QSettings数据 """
@@ -241,7 +423,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             pass
         else:
             settings.setValue('size', self.size())
-            settings.setValue('tab', self.ui.tabWidget.currentIndex())
+            settings.setValue('tab', self.tabWidget.currentIndex())
         settings.setValue('isMini', self.isMini)
 
     def readSettings(self):
@@ -260,7 +442,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         return pos, size, tab
 
     def readLoginSetting(self):
-        """ """
+        """ 读取am_maya自己的登录设置 """
         if os.path.isfile(self.SM_SETTING_JSON):
             f = open(self.SM_SETTING_JSON, 'r')
             setting_data = json.loads(f.read())
@@ -270,27 +452,11 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         return setting_data
 
     def rememberLoginSettings(self):
-        """  """
+        """ 记录am_maya自己的登录设置 """
         data = {"user": self.user, "password": self.password}
         f = open(self.SM_SETTING_JSON, 'w')
         f.write(json.dumps(data))
         f.close()
-
-    def projectSetting(self):
-        """ 读取配置档 """
-        tempJson = '%s/projectSetting.json' % self.tempPath
-        if os.path.exists(tempJson):
-            data = jsonHelper.readDictFromFile(tempJson)
-        else:
-            data = self.resetProjectSetting()
-        return data
-
-    def resetProjectSetting(self):
-        toolsJson = '%s/config/projectSetting.json' % self.scriptsPath
-        tempJson = '%s/projectSetting.json' % self.tempPath
-        data = jsonHelper.readDictFromFile(toolsJson)
-        jsonHelper.writeDictToFile(tempJson, data)
-        return data
 
     def login_UI(self):
         """ 登录 """
@@ -330,7 +496,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         def _login():
             self.user = name_comboBox.currentText()
             self.password = password_lineEdit.text()
-            self.ui.login_bttn.setText(self.user)
+            self.login_bttn.setText(self.user)
             self.tabChanged()
             if remember_checkBox.isChecked():
                 self.rememberLoginSettings()
@@ -345,7 +511,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.user = ""
         self.password = ""
         self.rememberLoginSettings()
-        self.ui.login_bttn.setText(u"未登录")
+        self.login_bttn.setText(u"未登录")
 
     def reset_password(self):
         """ 修改密码 """
@@ -405,58 +571,20 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         切换tab
         :return:
         """
-        if self.ui.tabWidget.currentIndex() == 0 and self.ui.asset_page.layout().count() == 0:
+        if self.tabWidget.currentIndex() == 0 and self.asset_page.layout().count() == 0:
             self.asset = assetTools.AssetToolsUI(user=self.user, password=self.password)
-            self.ui.asset_page.layout().addWidget(self.asset.ui)
-        elif self.ui.tabWidget.currentIndex() == 1 and self.ui.sets_page.layout().count() == 0:
+            # AssetToolsUI 现已是控件本身（原 self.asset.ui 改为代码构建后直接挂在 self 上）
+            self.asset_page.layout().addWidget(self.asset)
+        elif self.tabWidget.currentIndex() == 1 and self.sets_page.layout().count() == 0:
             self.scene = sceneTools.SceneToolsUI(user=self.user, password=self.password)
-            self.ui.sets_page.layout().addWidget(self.scene.ui)
-        elif self.ui.tabWidget.currentIndex() == 2 and self.ui.action_page.layout().count() == 0:
-            self.ui.action_page.layout().addWidget(actionTools.ActionToolsUI())
-        elif self.ui.tabWidget.currentIndex() == 3 and self.ui.idea_page.layout().count() == 0:
-            self.ui.idea_page.layout().addWidget(ShotsManager_Maya.ShotsManagerMayaUI(self.isSQL,
-                                                                                      user=self.user,
-                                                                                      password=self.password))
-        # elif self.ui.tabWidget.currentIndex() == 4 and self.ui.mod_page.layout().count() == 0:
-        #     self.ui.mod_page.layout().addWidget(modTools.ModToolsUI())
-        elif self.ui.tabWidget.currentIndex() == 5 and self.ui.rig_page.layout().count() == 0:
-            self.ui.rig_page.layout().addWidget(rigTools.RigToolsUI())
-        # elif self.ui.tabWidget.currentIndex() == 6 and self.ui.xgen_page.layout().count() == 0:
-        #     self.ui.xgen_page.layout().addWidget(xgenTools.XGenToolsUI())
-        elif self.ui.tabWidget.currentIndex() == 7 and self.ui.sim_page.layout().count() == 0:
-            pass
+            self.sets_page.layout().addWidget(self.scene.ui)
 
-    def jumpTab(self, index):
-        self.ui.tabWidget.setCurrentIndex(index)
-
-    def is_SQL(self):
-        """ 是否读取数据库 """
-        return True
-
-    # def is_CGTW(self):
-    #     """ 是否读取CGTeamWork """
-    #     try:
-    #         import cgtw2
-    #         t_tw = cgtw2.tw()
-    #         login = t_tw.login.is_login()
-    #         if not login:
-    #             self.isCGTW = False
-    #             cmds.confirmDialog(title='Confirm', message=u'<h3>未登入CGTeamWork,将从网盘直接读取数据!<h3>', button=['Yes'],
-    #                                defaultButton='Yes', icon='warning')
-    #     except:
-    #         self.isCGTW = False
-    #         cmds.confirmDialog(title='Confirm', message=u'<h3>未登入CGTeamWork,将从网盘直接读取数据!<h3>', button=['Yes'],
-    #                            defaultButton='Yes', icon='warning')
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
-        print("按压222")
+        # 点击主窗空白处时，关闭表格视图里弹出的制作人/中文名面板
         try:
-            self.asset_ui.ui_main_wgt._table_wgt.user_menu.close()
-        except:
-            pass
-        try:
-            self.ui_main_wgt._table_wgt.note_menu.close()
-        except:
+            self.asset.ui_main_wgt.closeMenus()
+        except Exception:
             pass
 
     def getStyleSheet(self):
@@ -467,10 +595,12 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
     def shrinkWin(self):
         """切换mini窗口"""
+        # 旧的 self.hide()/self.hide() 现改为隐藏当前中心控件；
+        # setCentralWidget 会替换并销毁旧的中心控件，这里仅做切换前的防御性隐藏。
         if self.isMini:
             self.rememberSettings()
             try:
-                self.mini_ui.hide()
+                self.centralWidget().hide()
             except:
                 pass
             self.init_ui()
@@ -478,18 +608,16 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         else:
             self.rememberSettings()
             try:
-                self.ui.hide()  # RuntimeError: Internal C++ object (PySide2.QtWidgets.QMainWindow) already deleted.
+                self.centralWidget().hide()
             except:
                 pass
             self.init_ui_mini()
             self.isMini = True
 
     def toolSetting_UI(self):
-        """
-        工具设置
-        """
+        """工具设置"""
         toolsJson = '%s/config/projectSetting.json' % self.scriptsPath
-        tempJson = '%s/projectSetting.json' % self.tempPath
+        tempJson = '%s/projectSetting.json' % am_Temp()
         f = QtCore.QFile('%s/ui/setting.ui' % self.scriptsPath)
         f.open(QtCore.QFile.ReadOnly)
         loader = QtUiTools.QUiLoader().load(f)
@@ -508,9 +636,9 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         def setTool():
             """ 设定 """
             print(loader.lineEdit.text())
-            for i in range(self.ui.asset_page.layout().count()):
-                self.ui.asset_page.layout().itemAt(i).widget().deleteLater()
-            self.ui.asset_page.layout().addWidget(assetTools.AssetToolsUI(isCGTW=False,
+            for i in range(self.asset_page.layout().count()):
+                self.asset_page.layout().itemAt(i).widget().deleteLater()
+            self.asset_page.layout().addWidget(assetTools.AssetToolsUI(isCGTW=False,
                                                                           ROOT=loader.lineEdit.text()))
             loader.close()
 
@@ -523,51 +651,6 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             jsonHelper.writeDictToFile(tempJson, data)
             loader.lineEdit.setText(data['rootPath'])
 
-        def esc():
-            """ 退出 """
-            loader.close()
-            # assetTools.AssetToolsUI(ROOT=loader.lineEdit.text()).init_ui()
-            # print(assetTools.AssetToolsUI().ROOT)
-        # Dialog = QtWidgets.QDialog(self)
-        # Dialog.resize(390, 95)
-        # Dialog.setWindowTitle(u"Enter Super User Password")
-        # font = QtGui.QFont()
-        # font.setFamily(u"Microsoft YaHei UI")
-        # font.setPointSize(10)
-        # label = QtWidgets.QLabel(Dialog)
-        # label.setText(u"*请输入管理员密码以获取修改权限：")
-        # label.setFont(font)
-        # label2 = QtWidgets.QLabel(Dialog)
-        # label2.setText(u"Password")
-        # label2.setFont(font)
-        # password_lineEdit = QtWidgets.QLineEdit(Dialog)
-        # password_lineEdit.setEchoMode(QtWidgets.QLineEdit.Password)
-        # bttnbox = QtWidgets.QDialogButtonBox(Dialog)
-        # bttnbox.setOrientation(QtCore.Qt.Horizontal)
-        # bttnbox.setStandardButtons(QtWidgets.QDialogButtonBox.Cancel | QtWidgets.QDialogButtonBox.Ok)
-        # lay = QtWidgets.QGridLayout(Dialog)
-        # lay.setContentsMargins(10, 5, 10, 10)
-        # lay.addWidget(label, 0, 0, 1, 2)
-        # lay.addWidget(label2, 1, 0, 1, 1)
-        # lay.addWidget(password_lineEdit, 1, 1, 1, 1)
-        # lay.addWidget(bttnbox, 2, 1, 1, 1)
-        #
-        # def _toolSetting():
-        #     password = password_lineEdit.text()
-        #     jsonPath = '%s/config/projectSetting.json' % self.scriptsPath
-        #     if password == "999999":
-        #         if os.path.isfile(jsonPath):
-        #             os.startfile(jsonPath)
-        #             Dialog.close()
-        #         else:
-        #             print(u"没有找到设置文件")
-        #     else:
-        #         QtWidgets.QMessageBox.warning(self, u'提示', u'密码错误')
-        #
-        # bttnbox.accepted.connect(lambda: _toolSetting())
-        # bttnbox.rejected.connect(Dialog.reject)
-        # Dialog.exec_()
-
     def miniSetting_UI(self):
         """
         mini工具设置
@@ -575,50 +658,18 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         menu = QtWidgets.QMenu(self)
         action_a = QtWidgets.QAction(u"Assets", self)
         action_a.setCheckable(True)
-        # action_a.setChecked(True)
-        # opt1 = menu.addAction(u"Mod Publish")
         action_b = QtWidgets.QAction(u"Scenes", self)
         action_b.setCheckable(True)
-        # action_b.setChecked(True)
         menu.addAction(action_a)
         menu.addAction(action_b)
         menu.popup(QtCore.QPoint(self.x() + 350, self.y() + 30))
-
-        # wgt = QtWidgets.QWidget(self.uimini)
-        # # wgt.resize(1000,1000)
-        # lay = QtWidgets.QVBoxLayout()
-        # cBox = QtWidgets.QCheckBox(u"Mod Publish")
-        # cBox.move(350,30)
-        # wgt.setLayout(lay)
-        # lay.addWidget(cBox)
-        # wgt.show()
-        # wgt.move(300,10)
-
-        # f = QtCore.QFile('%s/ui/miniSetting.ui' % self.scriptsPath)
-        # f.open(QtCore.QFile.ReadOnly)
-        # loader = QtUiTools.QUiLoader(self.uimini).load(f)
-        # self.ssui = loader
-        # f.close()
-        # self.ssui.show()
-        # self.ssui.setWindowFlags(QtCore.Qt.FramelessWindowHint)
-        # self.ssui.move(QtGui.QCursor.pos())
 
     def miniSearch(self):
         """ mini搜索 """
         self.miniSearchThread.start()
 
-    def _listItems_CGT(tab, project, type, asset, assetmaya, assetstapy, assetentity, assetcnname, keyWords):
-        TW_proj = str(projectSetting()['projectdiction'][project])
-        t_asset_ids = t_tw.info.get_id(TW_proj, asset, [[assetmaya, '=', u"完成"], 'and', [assetstapy, '=', type]])
-        TW_dictionInfo = t_tw.info.get(TW_proj, asset, t_asset_ids, [assetentity, assetcnname])
-        list_text = []
-        for info in TW_dictionInfo:
-            if info[assetentity].lower().find(keyWords.lower()) != -1 or info[assetcnname].find(keyWords) != -1:
-                list_text.append(info[assetentity] + '   /   ' + info[assetcnname])
-        return list_text
-
     def _miniSearch(self):
-        keyWords = self.mini_ui.key_line.text()
+        keyWords = self.key_line.text()
         self.menu = QtWidgets.QMenu()
         self.menu.setStyleSheet("QMenu{background-color: rgb(35, 35, 35);}" +
                                 "QMenu:selected{background: #b0e600; color: #000000;}")
@@ -632,7 +683,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                         founded_result.append("found something")
                         actionA = QtWidgets.QAction(
                             "::::::::::::::::::::::  Assets > {0} > {1}  ::::::::::::::::::::::".format(proj, type),
-                            self.mini_ui.mainLayout)
+                            self.mainLayout)
                         actionA.setDisabled(True)
                         self.menu.addAction(actionA)
                         for a in aaa:
@@ -655,7 +706,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                         actionB = QtWidgets.QAction(
                             ":::::::::::::::::::::::::  Scenes > {0} > {1}  :::::::::::::::::::::::::".format(proj,
                                                                                                               type),
-                            self.mini_ui.mainLayout)
+                            self.mainLayout)
                         actionB.setDisabled(True)
                         self.menu.addAction(actionB)
                         for b in bbb:
@@ -665,13 +716,13 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                             self.menu.addAction(self.addAction(b, path))
 
         if not founded_result:  #
-            actionB = QtWidgets.QAction(u" >_< Oooops... Nothing found ！ ", self.mini_ui.mainLayout)
+            actionB = QtWidgets.QAction(u" >_< Oooops... Nothing found ！ ", self.mainLayout)
             self.menu.addAction(actionB)
         self.menu.exec_(QtCore.QPoint(self.x(), self.y() + 70))
 
     def addAction(self, ZhEn_name, path):
         """使用Java闭包，否则triggered.connect的action只会认到最后一个action"""
-        action = QtWidgets.QAction(ZhEn_name, self.mini_ui.mainLayout)
+        action = QtWidgets.QAction(ZhEn_name, self.mainLayout)
         action.setData(path)
         action.triggered.connect(lambda: self.createRef_mini(action))
         return action

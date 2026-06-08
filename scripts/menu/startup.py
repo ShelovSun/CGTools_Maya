@@ -272,7 +272,7 @@ def shelf_setup():
             maya_shelves_path = i
     with open(org_shelf_path) as (f):
         stra = f.read()
-        strb = stra.replace('scriptsPath', scriptsPathOut)
+        strb = stra.replace('scriptsPath', scriptsPath)
     new_shelf_path = "{}/shelf_CGTools.mel".format(maya_shelves_path)
     if os.path.exists(new_shelf_path):
         try:

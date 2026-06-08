@@ -23,50 +23,10 @@ from utils import jsonHelper, publish, messageBox, sequenceplayer, copy_thread
 from widgets import am_main, faverWidget, previewWidget, am_pixmap, am_listItem
 
 
-# import importlib
-# importlib.reload(previewWidget)
-
-
 def maya_main_window():
     """接收拖入"""
     main_window_ptr = omui.MQtUtil.mainWindow()
     return wrapInstance(int(main_window_ptr), QtWidgets.QMainWindow)
-
-
-# class CopyThread(QtCore.QThread):
-#     signal = QtCore.Signal()
-#     update_num = QtCore.Signal()
-#     copy_file = QtCore.Signal()
-#
-#     def __init__(self):
-#         super(CopyThread, self).__init__()
-#         # self.for_Maya = for_Maya
-#         # self.tag = target
-#         # self.copyedNum = 0
-#
-#     def run(self):
-#         print("kkkkkkkkkkkkkkkkkkkkk")
-#         self.signal.emit()
-# for x in range(0, 100):
-#     time.sleep(0.1)
-#     print(x)
-#     self.update_num.emit(x)
-# if not os.path.exists(self.tag):
-#     os.makedirs(self.tag)
-#     shutil.copystat(self.for_Maya, self.tag)
-# lst = os.listdir(self.for_Maya)
-#
-# for item in lst:
-#     s = os.path.join(self.for_Maya, item)
-#     d = os.path.join(self.tag, item)
-#     if os.path.isdir(s):
-#         self.run()
-#     else:
-#         shutil.copy2(s, d)
-#         self.copyedNum += 1
-#         print(self.copyedNum)
-#         self.update_num.emit(self.copyedNum)
-#         self.copy_file.emit(item)
 
 
 class GetDataThread(QtCore.QThread):
@@ -116,7 +76,7 @@ class GetDataThread(QtCore.QThread):
             cur.execute(get_script)
             while True:
                 data = cur.fetchone()
-                # print(data)
+                print(data)
                 # image = QtGui.QImage(data[7])
                 if data is None:
                     break
@@ -191,19 +151,8 @@ class AssetToolsUI(QtWidgets.QWidget):
                                      'xgen': 'Xgen',
                                      'AD': 'Assembly',
                                      'OAT': 'Rig'}
-        # self.update_asset_thread = myWidget.MyThread()
-        # self.update_asset_thread.signal.connect(lambda: self.listWidgetAddItems())
-
-        # self.init_ui_thread = myWidget.MyThread()
-        # self.init_ui_thread.signal.connect(self.init_ui)
-        # self.init_ui_thread.start()
-        # self.init_ui_thread.finished.connect(lambda: self.listWidgetAddItems(self.getItemsList()))
         self.init_ui()
         self.show_asset()
-        # self._worker = GetDataThread(self.currentProject(), self.currentType(), self.user, self.password, "", "")
-        # self._worker.data_signals.connect(self._thumbnailFromImage)
-        # self._worker.start()
-        # self.listWidgetAddItems(self.getItemsList())
 
     def init_ui(self):
         # print("init_ui")
@@ -801,7 +750,7 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def show_asset(self, data=None):
         """ 刷新数据，展示资产 """
-        # print("展示数据", self.user, self.password)
+        print("展示数据", self.user, self.password)
         # self.listWidgetAddItems(self.getItemsList())
         self.ui_main_wgt.clear()
         self.load_worker = GetDataThread(self.currentProject(), self.currentType(), self.user, self.password,

@@ -61,6 +61,12 @@ class ThumbnailWorker(QtCore.QRunnable):
         with QtCore.QMutexLocker(cls._cache_lock):
             cls._cache.clear()
 
+    @classmethod
+    def removeCachedPixmap(cls, path):
+        """移除指定路径的缓存——icon 文件被覆盖(路径不变内容变)后需失效旧图，否则一直读旧缩略图。"""
+        with QtCore.QMutexLocker(cls._cache_lock):
+            cls._cache.pop(path, None)
+
     def run(self):
         """在线程池中执行"""
         if self._cancelled:

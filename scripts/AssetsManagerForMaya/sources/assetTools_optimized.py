@@ -294,6 +294,13 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.upload_Bttn.setFlat(True)
         horizontalLayout_6.addWidget(self.upload_Bttn)
 
+        self.capture_Bttn = QtWidgets.QPushButton()
+        _set_size_policy(self.capture_Bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.capture_Bttn.setMaximumSize(QtCore.QSize(21, 25))
+        self.capture_Bttn.setIconSize(QtCore.QSize(20, 15))
+        self.capture_Bttn.setFlat(True)
+        horizontalLayout_6.addWidget(self.capture_Bttn)
+
         self.tag_bttn = QtWidgets.QPushButton()
         _set_size_policy(self.tag_bttn, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         self.tag_bttn.setMaximumSize(QtCore.QSize(18, 25))
@@ -564,6 +571,8 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.attr_splitter.setSizes([300, 500])
         self.upload_Bttn.setIcon(QtGui.QIcon('%s/icon/cloud_upload.png' % self.scriptsPath))
         self.upload_Bttn.clicked.connect(self.addTagUI)
+        self.capture_Bttn.setIcon(QtGui.QIcon('%s/icon/capture.png' % self.scriptsPath))
+        self.capture_Bttn.clicked.connect(self.captureThumbnail)
         self.favor_bttn.setIcon(QtGui.QIcon('%s/icon/unStar.png' % self.scriptsPath))
         self.favor_bttn.clicked.connect(self.addFavor)
         self.tag_bttn.setIcon(QtGui.QIcon('%s/icon/unTag.png' % self.scriptsPath))
@@ -701,6 +710,10 @@ class AssetToolsUI(QtWidgets.QWidget):
             else:
                 select = self.Favorites_listWgt.selectedItems()[0].text()
                 data = self.Favorites_listWgt.get_tag_items(select)
+            # 收藏 JSON 不存在时 readFaveDict 返回 {}、标签缺失时 get_tag_items 返回 None，
+            # 直接喂给视图会在 addItems 里 for 迭代 None 报错——统一兜底成空列表。
+            if not isinstance(data, list):
+                data = []
             self.ui_main_wgt.setItemsList(data)
             self.ui_main_wgt.addItems(self.get_keywords())
 
@@ -828,8 +841,15 @@ class AssetToolsUI(QtWidgets.QWidget):
                     if file_path and not QtCore.QFileInfo(file_path).exists():
                         btn.setEnabled(False)
 
-                # 设置收藏和标签按钮状态
-                # ... (保持原有逻辑)
+                # 同步收藏/标签按钮图标到当前选中项的实际状态（以本地 JSON 为准）
+                item = currentSelected[0]
+                try:
+                    favor_icon = 'star.png' if item.isFavor() else 'unStar.png'
+                    self.favor_bttn.setIcon(QtGui.QIcon('%s/icon/%s' % (self.scriptsPath, favor_icon)))
+                    tag_icon = 'tag.png' if item.isTag() else 'unTag.png'
+                    self.tag_bttn.setIcon(QtGui.QIcon('%s/icon/%s' % (self.scriptsPath, tag_icon)))
+                except Exception:
+                    pass
 
     def detailPath(self):
         """获取文件路径"""
@@ -1039,6 +1059,79 @@ class AssetToolsUI(QtWidgets.QWidget):
             _item.setIcon(_icon)
             self.type_listWgt.addItem(_item)
             self.type_listWgt.setCurrentItem(_item)
+
+    def captureThumbnail(self):
+        """屏幕截图 -> 覆盖为当前资产的 icon -> (图标模式下)刷新该图标。
+
+        复用 PublishTools 的交互式截图：框选后在工具栏点“确定”/回车/双击，
+        capture.ToolBar.ok_do_it() 会把截图存到
+        %APPDATA%/AssetsManagerIconTemp/snapshot/thumbnail.png 并回调 self.set_thumbnail()。
+        """
+        currentSelected = self.ui_main_wgt.selectedItems()
+        if not currentSelected:
+            self.infoMsg('warning', u'请先选中一个资产')
+            return
+        item = currentSelected[0]
+        item_data = item.itemData()
+        if not item_data or len(item_data) <= 7 or not item_data[7]:
+            self.infoMsg('warning', u'当前资产没有有效的 icon 路径')
+            return
+
+        # 记下截图目标(icon 路径 + 条目)，供异步回调 set_thumbnail 使用；
+        # 截图过程中即使改变选择，也以点截图时选中的资产为准。
+        self._capture_icon_path = item_data[7]
+        self._capture_item = item
+
+        try:
+            from tools_publish.PublishTools import capture
+            capture.show_capture_screen(self)
+        except Exception as e:
+            self.infoMsg('error', u'截图启动失败: %s' % e)
+
+    def set_thumbnail(self):
+        """截图完成回调(capture.ToolBar 通过 ScreenShot.send_back 调用)：
+        把临时截图覆盖到资产 icon 并刷新显示。
+        """
+        icon_path = getattr(self, "_capture_icon_path", "")
+        if not icon_path:
+            return
+        # 与 capture.ToolBar 的保存位置保持一致
+        snapshot = "{}/AssetsManagerIconTemp/snapshot/thumbnail.png".format(os.environ.get('APPDATA'))
+        pixmap = QtGui.QPixmap(snapshot)
+        if pixmap.isNull():
+            self.infoMsg('error', u'读取截图失败')
+            return
+
+        icon_dir = os.path.dirname(icon_path)
+        if icon_dir and not os.path.exists(icon_dir):
+            os.makedirs(icon_dir)
+        if not pixmap.save(icon_path, "PNG"):
+            self.infoMsg('error', u'icon 保存失败: %s' % icon_path)
+            return
+
+        self._refreshAssetIcon(icon_path, getattr(self, "_capture_item", None))
+        self.infoMsg('info', u'已更新 icon: %s' % os.path.basename(icon_path))
+
+    def _refreshAssetIcon(self, icon_path, item):
+        """icon 文件被覆盖后刷新显示：失效缩略图缓存 + (图标模式下)复位条目并重载。"""
+        # 路径不变、内容已变，必须把旧 pixmap 从缓存剔除，否则一直读旧图
+        try:
+            from widgets.am_thumbnail_loader import ThumbnailWorker
+            ThumbnailWorker.removeCachedPixmap(icon_path)
+        except Exception:
+            pass
+
+        # 仅图标(微缩图)模式需要刷新主视图里的缩略图；列表模式不显示 icon
+        if not self.isList and item is not None and hasattr(item, "resetThumbnail"):
+            try:
+                item.resetThumbnail()        # 复位 loaded/loading 标志，允许重新请求
+                item._thumbnail_pixmap = None
+                item._pixmap_scaled = None
+                item._pixmap_scaled_key = None
+                item.loadThumbnail()         # 重新异步加载(缓存已失效->从磁盘读新图)
+                item._repaintHost()
+            except Exception:
+                pass
 
     def addFavor(self):
         """添加收藏"""

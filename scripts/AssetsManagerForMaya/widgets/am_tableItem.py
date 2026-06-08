@@ -124,14 +124,15 @@ class TableItem(QtWidgets.QTableWidgetItem):
 
     def _getFavorList(self):
         """
-        :return: list of favor
+        :return: 收藏资产名列表
         """
-        # print("getFavorList")
+        # 收藏 JSON 存的是资产数据行(list)，资产名在 index 1；旧实现按 dict.get 取会报错。
         favorList = []
         data = jsonHelper.readDictFromFile('%s/%s_fave.json' % (tempPath, self._tab))
-        if data:
-            for i in data:
-                favorList.append(i.get("role_name"))
+        if isinstance(data, list):
+            for row in data:
+                if isinstance(row, (list, tuple)) and len(row) > 1:
+                    favorList.append(str(row[1]))
         return favorList
 
     def setFavor(self, value):

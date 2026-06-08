@@ -13,6 +13,10 @@ from PySide2 import QtCore
 from PySide2 import QtWidgets
 
 from widgets.am_thumbnail_loader import ThumbnailLoader, ThumbnailWorker
+from utils import jsonHelper
+
+# 收藏/标签的本地存储目录（与 am_tableItem、faverWidget 共用同一份 JSON）
+tempPath = "{}/AssetsManagerTemp".format(os.environ.get('APPDATA'))
 
 
 class ListItemOptimized(QtWidgets.QListWidgetItem):
@@ -205,18 +209,86 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         return self._thumbnail_loaded
 
     def setFavor(self, value):
-        """设置收藏状态"""
-        self._is_favor = value
+        """设置收藏状态，并写入本地 Asset_fave.json（与表格条目、收藏面板共用）。"""
+        self._is_favor = bool(value)
+        self._writeFavor(self._is_favor)
 
     def isFavor(self):
+        """以本地 JSON 为准判断是否已收藏（重开后状态依然正确）。"""
+        self._is_favor = self.name() in self._readFavorNames()
         return self._is_favor
 
     def setTag(self, tag):
-        """设置标签"""
+        """设置标签，并写入本地 Asset_tag.json（与收藏面板共用）。"""
         self._is_tag = bool(tag)
+        if tag:
+            self._writeTag(tag)
 
     def isTag(self):
+        """以本地 JSON 为准判断该资产是否被打过任意标签。"""
+        data = jsonHelper.readDictFromFile(self._tagJsonPath())
+        self._is_tag = False
+        if isinstance(data, dict):
+            name = self.name()
+            for rows in data.values():
+                if isinstance(rows, list) and any(
+                        isinstance(r, (list, tuple)) and len(r) > 1 and str(r[1]) == name
+                        for r in rows):
+                    self._is_tag = True
+                    break
         return self._is_tag
+
+    # ---- 收藏 / 标签的本地 JSON 持久化（以资产名 itemData[1] 为 key） ----
+    def _faveJsonPath(self):
+        return '%s/%s_fave.json' % (tempPath, self._tab)
+
+    def _tagJsonPath(self):
+        return '%s/%s_tag.json' % (tempPath, self._tab)
+
+    @staticmethod
+    def _ensureTempDir():
+        # writeDictToFile 不会自建目录，写之前先确保存在
+        if not os.path.exists(tempPath):
+            os.makedirs(tempPath)
+
+    def _readFavorNames(self):
+        """读 Asset_fave.json 里所有收藏资产名；文件不存在/格式不符按空处理。"""
+        data = jsonHelper.readDictFromFile(self._faveJsonPath())
+        if not isinstance(data, list):
+            return []
+        return [str(r[1]) for r in data
+                if isinstance(r, (list, tuple)) and len(r) > 1]
+
+    def _writeFavor(self, value):
+        """value=True 加入收藏（按资产名去重），False 移除。"""
+        self._ensureTempDir()
+        path = self._faveJsonPath()
+        data = jsonHelper.readDictFromFile(path)
+        if not isinstance(data, list):
+            data = []
+        name = self.name()
+        data = [r for r in data if not (
+            isinstance(r, (list, tuple)) and len(r) > 1 and str(r[1]) == name)]
+        if value:
+            data.append(list(self._item_data))
+        jsonHelper.writeDictToFile(path, data)
+
+    def _writeTag(self, tag):
+        """把该资产加入指定标签分组（按资产名去重）。"""
+        self._ensureTempDir()
+        path = self._tagJsonPath()
+        data = jsonHelper.readDictFromFile(path)
+        if not isinstance(data, dict):
+            data = {}
+        name = self.name()
+        bucket = data.get(tag)
+        if not isinstance(bucket, list):
+            bucket = []
+        bucket = [r for r in bucket if not (
+            isinstance(r, (list, tuple)) and len(r) > 1 and str(r[1]) == name)]
+        bucket.append(list(self._item_data))
+        data[tag] = bucket
+        jsonHelper.writeDictToFile(path, data)
 
     @classmethod
     def _getDefaultThumbnailPath(cls):

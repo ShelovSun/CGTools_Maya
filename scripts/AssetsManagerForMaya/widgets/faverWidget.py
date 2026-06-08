@@ -17,7 +17,9 @@ from PySide2 import QtWidgets
 
 scriptsPath = os.path.split(os.path.realpath(__file__))[0].replace('\\', '/').replace('widgets', '')
 # tempPath = "{}/AssetsManagerIconTemp".format(os.environ.get('TEMP'))  # 不行,系统变量会变ADMINI~1
-tempPath = "{}AssetsManagerTemp".format(cmds.internalVar(userTmpDir=True))
+# 必须与条目类(am_tableItem/am_list_item_optimized)、config.am_Temp() 一致，
+# 否则收藏/标签写在 APPDATA、面板却从 Maya 临时目录读，永远对不上(见 CLAUDE.md)。
+tempPath = "{}/AssetsManagerTemp".format(os.environ.get('APPDATA'))
 
 
 def projectSetting():

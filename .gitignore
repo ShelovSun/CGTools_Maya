@@ -6,3 +6,8 @@
 scripts/assetManager/
 venv/
 .venv/
+
+# Windows 系统缓存垃圾
+Thumbs.db
+ehthumbs.db
+Desktop.ini

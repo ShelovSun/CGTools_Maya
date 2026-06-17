@@ -787,10 +787,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         """获取面板数据"""
         __project = str(self.project_comb.currentText())
         __type = str(self.type_listWgt.selectedItems()[0].text())
-        __path = '%s/%s/%s/%s' % (
-            self.ROOT, __project,
-            projectSetting()['assetFolder'], __type
-        )
+        __path = '%s/%s/Assets/%s' % (self.ROOT, __project, __type)
         return __project, __type, __path
 
     def getCurrentItemsData(self):
@@ -1405,9 +1402,9 @@ class AssetToolsUI(QtWidgets.QWidget):
         label.setText(u"创建一个新资产：")
 
         proj_comb = QtWidgets.QComboBox(Dialog)
-        proj_comb.addItems(projectSetting()["projects"])
+        proj_comb.addItems(projectSetting()["DataBase"])
         type_comb = QtWidgets.QComboBox(Dialog)
-        type_comb.addItems(projectSetting()['type'])
+        type_comb.addItems(["Characters", "Props"])
         name_line = QtWidgets.QLineEdit(Dialog)
         name_line.setPlaceholderText("asset name")
         zh_name_line = QtWidgets.QLineEdit(Dialog)

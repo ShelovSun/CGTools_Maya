@@ -7,6 +7,7 @@ import maya.OpenMayaUI as omui
 import maya.cmds as cmds
 import maya.mel as mel
 import os
+import shutil
 
 import psycopg2
 import time
@@ -232,6 +233,261 @@ class Log(QtCore.QThread):
         return item
 
 
+class ReferenceSelectDialog(QtWidgets.QDialog):
+    """ Action发布第1步：列出场景中全部Reference，供用户勾选要发布的角色
+
+    :param references: [(refNode, fileName), ...]
+    :param checked_refs: 需要默认打勾的 refNode 集合（一般为maya中已选中的角色）
+    """
+
+    def __init__(self, references, checked_refs=None, parent=None):
+        super(ReferenceSelectDialog, self).__init__(parent)
+        self.setWindowTitle(u"选择要发布的Reference")
+        self.resize(560, 320)
+        checked_refs = checked_refs or set()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        self.listWidget = QtWidgets.QListWidget()
+        layout.addWidget(self.listWidget)
+
+        for refNode, fileName in references:
+            item = QtWidgets.QListWidgetItem(u"{0}    {1}".format(refNode, fileName))
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            if refNode in checked_refs:
+                item.setCheckState(QtCore.Qt.Checked)
+            else:
+                item.setCheckState(QtCore.Qt.Unchecked)
+            item.setData(QtCore.Qt.UserRole, (refNode, fileName))
+            self.listWidget.addItem(item)
+
+        btnLayout = QtWidgets.QHBoxLayout()
+        btnLayout.addStretch()
+        self.ok_btn = QtWidgets.QPushButton(u"确定")
+        self.cancel_btn = QtWidgets.QPushButton(u"取消")
+        btnLayout.addWidget(self.ok_btn)
+        btnLayout.addWidget(self.cancel_btn)
+        layout.addLayout(btnLayout)
+
+        self.ok_btn.clicked.connect(self.accept)
+        self.cancel_btn.clicked.connect(self.reject)
+
+    def checkedReferences(self):
+        """ 返回被勾选的 (refNode, fileName) 列表 """
+        result = []
+        for i in range(self.listWidget.count()):
+            item = self.listWidget.item(i)
+            if item.checkState() == QtCore.Qt.Checked:
+                result.append(item.data(QtCore.Qt.UserRole))
+        return result
+
+
+class _CollapsibleHeader(QtWidgets.QWidget):
+    """ 可点击的头部区域，点击时发出 clicked 信号（用于展开/折叠）
+
+    勾选框等子控件会自行消费点击，只有点在空白/路径处才会触发折叠。
+    """
+
+    clicked = QtCore.Signal()
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super(_CollapsibleHeader, self).mousePressEvent(event)
+
+
+class ActionPublishItem(QtWidgets.QWidget):
+    """ Action发布组件：对应一个Reference的发布选项
+
+    每个被勾选的Reference生成一个本组件，包含：
+    资产名 / 动作名 / 帧数范围 / Start-End；
+    头部带勾选框（默认勾选，取消则不发布该动作），点击头部可展开/折叠。
+    """
+
+    EDIT_STYLE = "background-color: rgb(45, 45, 45);"
+    LABEL_WIDTH = 60
+
+    changed = QtCore.Signal()
+
+    def __init__(self, asset_name=None, ref_node=None, ref_path=None, parent=None):
+        super(ActionPublishItem, self).__init__(parent)
+        self.ref_node = ref_node
+        self.ref_path = ref_path or self._query_ref_path(ref_node)
+        self._build_ui(asset_name)
+        self._connect_signals()
+        self.set_time_range()
+
+    @staticmethod
+    def _query_ref_path(ref_node):
+        """ 查询reference的完整路径，失败返回空串 """
+        if not ref_node:
+            return u""
+        try:
+            return cmds.referenceQuery(ref_node, filename=True)
+        except RuntimeError:
+            return u""
+
+    # ---------------------------- UI ----------------------------
+    def _label(self, text, align_right=True, pointsize=10):
+        lab = QtWidgets.QLabel(text)
+        lab.setFont(QtGui.QFont("Microsoft YaHei UI", pointsize))
+        lab.setMinimumWidth(self.LABEL_WIDTH)
+        if align_right:
+            lab.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        return lab
+
+    @staticmethod
+    def _hline():
+        line = QtWidgets.QFrame()
+        line.setFrameShape(QtWidgets.QFrame.HLine)
+        line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        return line
+
+    def _build_ui(self, asset_name):
+        font = QtGui.QFont("Microsoft YaHei UI", 10)
+
+        wrap = QtWidgets.QVBoxLayout(self)
+        wrap.setContentsMargins(0, 0, 0, 0)
+
+        frame = QtWidgets.QFrame()
+        frame.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        frame.setStyleSheet("QFrame{background-color: rgb(73, 73, 73);}")
+        wrap.addWidget(frame)
+
+        outer = QtWidgets.QVBoxLayout(frame)
+        outer.setContentsMargins(5, 5, 5, 5)
+        outer.setSpacing(3)
+
+        # ---- 头部：勾选框 + 折叠箭头 + 完整Reference路径（点击头部展开/折叠）----
+        header = _CollapsibleHeader()
+        header_lay = QtWidgets.QHBoxLayout(header)
+        header_lay.setContentsMargins(0, 0, 0, 0)
+        header_lay.setSpacing(4)
+
+        self.enable_cBox = QtWidgets.QCheckBox()
+        self.enable_cBox.setChecked(True)
+        self.enable_cBox.setToolTip(u"取消勾选则不发布这个动作")
+        header_lay.addWidget(self.enable_cBox, 0, QtCore.Qt.AlignTop)
+
+        self.arrow_label = QtWidgets.QLabel(u"▼")
+        self.arrow_label.setFixedWidth(14)
+        self.arrow_label.setStyleSheet("color: rgb(220, 220, 220);")
+        header_lay.addWidget(self.arrow_label, 0, QtCore.Qt.AlignTop)
+
+        path_label = QtWidgets.QLabel(self.ref_path or u"")
+        path_label.setFont(QtGui.QFont("Microsoft YaHei UI", 9, QtGui.QFont.Bold))
+        path_label.setStyleSheet("color: rgb(220, 220, 220);")
+        path_label.setWordWrap(True)
+        path_label.setToolTip(self.ref_path or u"")
+        header_lay.addWidget(path_label, 1)
+
+        outer.addWidget(header)
+        header.clicked.connect(self._toggle_body)
+
+        # ---- body：折叠时隐藏的选项区 ----
+        self.body = QtWidgets.QWidget()
+        body_lay = QtWidgets.QVBoxLayout(self.body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(3)
+        outer.addWidget(self.body)
+
+        # 资产名
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(0)
+        self.asset_edit = QtWidgets.QLineEdit(asset_name or u"")
+        self.asset_edit.setFont(font)
+        self.asset_edit.setStyleSheet(self.EDIT_STYLE)
+        row.addWidget(self._label(u"资产名："))
+        row.addWidget(self.asset_edit)
+        body_lay.addLayout(row)
+
+        # 动作名
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(0)
+        self.action_edit = QtWidgets.QLineEdit()
+        self.action_edit.setFont(font)
+        self.action_edit.setStyleSheet(self.EDIT_STYLE)
+        self.action_edit.setPlaceholderText(u"**必填")
+        self.action_edit.setClearButtonEnabled(True)
+        row.addWidget(self._label(u"动作名："))
+        row.addWidget(self.action_edit)
+        body_lay.addLayout(row)
+
+        body_lay.addWidget(self._hline())
+
+        # 帧数范围
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(0)
+        self.time_slider_rb = QtWidgets.QRadioButton(u"时间线")
+        self.time_slider_rb.setChecked(True)
+        self.start_end_rb = QtWidgets.QRadioButton(u"自定义范围")
+        # 显式按钮组，确保两个单选仅在本组件内互斥，不与其它组件串扰
+        self._range_group = QtWidgets.QButtonGroup(self)
+        self._range_group.addButton(self.time_slider_rb)
+        self._range_group.addButton(self.start_end_rb)
+        row.addWidget(self._label(u"帧数范围：", align_right=False))
+        row.addWidget(self.time_slider_rb)
+        row.addWidget(self.start_end_rb)
+        body_lay.addLayout(row)
+
+        # Start / End
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(0)
+        self.start_edit = QtWidgets.QLineEdit()
+        self.start_edit.setFont(font)
+        self.start_edit.setStyleSheet(self.EDIT_STYLE)
+        self.start_edit.setMaximumHeight(20)
+        self.end_edit = QtWidgets.QLineEdit()
+        self.end_edit.setFont(font)
+        self.end_edit.setStyleSheet(self.EDIT_STYLE)
+        self.end_edit.setMaximumHeight(20)
+        row.addWidget(self._label(u"Start/End：", pointsize=8))
+        row.addWidget(self.start_edit)
+        row.addWidget(self.end_edit)
+        body_lay.addLayout(row)
+
+    # ------------------------- behaviour -------------------------
+    def _connect_signals(self):
+        # 切换到“时间线”/“自定义范围”都会触发 time_slider_rb.toggled
+        self.time_slider_rb.toggled.connect(self.set_time_range)
+        self.asset_edit.textChanged.connect(lambda *_: self.changed.emit())
+        self.action_edit.textChanged.connect(lambda *_: self.changed.emit())
+        self.enable_cBox.toggled.connect(self._on_enable_toggled)
+
+    def _toggle_body(self):
+        """ 点击头部：展开/折叠下面的选项区 """
+        visible = not self.body.isVisible()
+        self.body.setVisible(visible)
+        self.arrow_label.setText(u"▼" if visible else u"▶")
+
+    def _on_enable_toggled(self, checked):
+        """ 勾选框：取消勾选则该动作不发布（选项区置灰提示） """
+        self.body.setEnabled(checked)
+        self.changed.emit()
+
+    def set_time_range(self, *args):
+        """ 时间线模式：自动填充并锁定起止帧；自定义模式：解锁手动输入 """
+        if self.time_slider_rb.isChecked():
+            self.start_edit.setEnabled(False)
+            self.end_edit.setEnabled(False)
+            self.start_edit.setText(str(int(cmds.playbackOptions(query=True, minTime=True))))
+            self.end_edit.setText(str(int(cmds.playbackOptions(query=True, maxTime=True))))
+        else:
+            self.start_edit.setEnabled(True)
+            self.end_edit.setEnabled(True)
+
+    def get_info(self):
+        """ 返回该组件的发布信息 """
+        return {
+            'ref_node': self.ref_node,
+            'ref_path': self.ref_path,
+            'enabled': self.enable_cBox.isChecked(),
+            'asset_name': self.asset_edit.text().strip(),
+            'action_name': self.action_edit.text().strip(),
+            'use_timeline': self.time_slider_rb.isChecked(),
+            'start': self.start_edit.text().strip(),
+            'end': self.end_edit.text().strip(),
+        }
+
+
 class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     VERSION = "2.0.2"
     Pub = publish.Publish()
@@ -247,7 +503,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.setWindowTitle('Publish Tool ' + self.VERSION)
         self.setWindowIcon(QtGui.QIcon('%s/icon/publish.png' % self.scriptsPath))
         self.ui = None
-        self.resize(780, 500)
+        self.resize(980, 650)
         self.project = _project
         self.type = _type
         try:
@@ -263,6 +519,10 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self._log = ""
         self._imageSequence = None
         self.assemblies = []
+        self.selectedRefs = []  # Action发布：用户勾选的 (refNode, fileName) 列表
+        self.action_items = []  # Action发布：当前生成的 ActionPublishItem 组件列表
+        self.action_items_layout = None  # Action发布：承载组件的垂直布局
+        self._last_published_fbx = []  # Action发布：最近一次发布成功的fbx路径列表
         self.port_path = ''
         self.gpu_file_path = ''
         self.proxy_file_path = ''
@@ -321,6 +581,61 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         # self.ui.splitter.setStretchFactor(0, False)
         # self.ui.splitter.setStretchFactor(1, True)
         self.ui.Cancel_bttn.clicked.connect(self.closeWin)
+
+        # Action发布：移除.ui中写死的单组表单，改用代码动态生成的组件容器
+        self._setup_action_page()
+
+    def _setup_action_page(self):
+        """ 把Action页右侧写死的表单（项目/资产名/动作名/帧数范围/Start-End）去掉，
+        替换成一个可滚动的容器，后续按勾选的Reference个数往里加组件。
+        """
+        vlayout = self.ui.findChild(QtWidgets.QVBoxLayout, 'verticalLayout_10')
+        if vlayout is None:
+            return
+        # 清掉原有写死的表单行（保留“同时保存maya”groupBox_4）
+        keep = {'groupBox_4'}
+        for i in reversed(range(vlayout.count())):
+            item = vlayout.itemAt(i)
+            wgt = item.widget()
+            sub = item.layout()
+            if wgt is not None:
+                if wgt.objectName() in keep:
+                    continue
+                vlayout.takeAt(i)
+                wgt.setParent(None)
+                wgt.deleteLater()
+            elif sub is not None:
+                vlayout.takeAt(i)
+                self._delete_layout(sub)
+            else:  # spacer
+                vlayout.takeAt(i)
+        # 放宽尺寸约束，让滚动区可以撑开
+        vlayout.setSizeConstraint(QtWidgets.QLayout.SetDefaultConstraint)
+
+        # 新建滚动容器
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        container = QtWidgets.QWidget()
+        self.action_items_layout = QtWidgets.QVBoxLayout(container)
+        self.action_items_layout.setContentsMargins(0, 0, 0, 0)
+        self.action_items_layout.setSpacing(6)
+        self.action_items_layout.addStretch()
+        scroll.setWidget(container)
+        vlayout.insertWidget(0, scroll)
+
+    def _delete_layout(self, layout):
+        """ 递归删除一个布局及其所有子控件 """
+        while layout.count():
+            item = layout.takeAt(0)
+            wgt = item.widget()
+            sub = item.layout()
+            if wgt is not None:
+                wgt.setParent(None)
+                wgt.deleteLater()
+            elif sub is not None:
+                self._delete_layout(sub)
+        layout.deleteLater()
 
     def readLoginSetting(self):
         """ """
@@ -392,22 +707,13 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 self.ui.Yes_bttn.setEnabled(False)
 
         elif self.ui.Pub_Tab.currentIndex() == 3:  # Action============================================================
-            self.update_proj(self.ui.publishProj_comb_ac)
-            # self.update_type_ac()
-            if self.check_ac():
-                self.update_Title_ac()
-                # self.update_time_slider_state()
-                self.isYesEnable_ac()
-                self.isFBXEnable_ac()
-                # self.ui.Yes_bttn.clicked.connect(self._actionPublish)
-                self.renderIcon_ac()
-            else:
+            # 第1步：弹出Reference选择窗口（已在maya中选中的Reference自动打勾）
+            if not self.show_reference_dialog():
                 self.ui.Yes_bttn.setEnabled(False)
-            self.ui.name_lineEdit_ac.textChanged.connect(lambda: self.name_changed_ac())
-            self.ui.name_lineEdit_action.textChanged.connect(lambda: self.name_changed_ac())
-            # self.ui.publishType_comb_ac.currentIndexChanged.connect(lambda: self.type_changed_ac())
-            self.ui.time_slider_rBttn.clicked.connect(self._setTimeRange)
-            self.ui.start_end_rbttn.clicked.connect(self._setTimeRange)
+                return
+            # 第2步：按勾选的Reference个数，从上往下生成对应数量的发布组件
+            self.build_action_items()
+            self.renderIcon_ac()
 
     def closeEvent(self, event):
         try:
@@ -444,7 +750,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
     def update_proj(self, wgt):
         """ 根据json，设置proj显示 """
-        wgt.addItems(self.projectSetting()['projects'])
+        wgt.addItems(self.projectSetting()['DataBase'])
 
     def update_type(self, proj, Assets_or_Scenes, wgt):
         """ model/rig/scene面板根据项目，设置type显示 """
@@ -497,18 +803,17 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     def name_changed_ac(self):
         self.update_Title_ac()
         self.isYesEnable_ac()
-        self.isFBXEnable_ac()
+        # self.isFBXEnable_ac()
 
     def type_changed_ac(self):
         """ 改变ac类型触发：锁定time range；锁定fbx；锁定Yes；修改标题"""
         # self.update_time_slider_state()
         self.isYesEnable_ac()
-        self.isFBXEnable_ac()
+        # self.isFBXEnable_ac()
         self.update_Title_ac()
 
     def projectSetting(self):
-        data = jsonHelper.readDictFromFile('%s/AssetsManagerForMaya/config/projectSetting.json'
-                                           % self.scriptsPath.replace("tools_publish/PublishTools", ""))
+        data = jsonHelper.readDictFromFile('Y:/MCCTools/config/ShotManager_config/commonSetting.json')
         return data
 
     def check_abc_mll(self):
@@ -549,7 +854,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         print("check_mod")
         if len(cmds.ls('*_*_AST', type='transform')) == 1:
             projectName = cmds.ls('*_*_AST', type='transform')[0].split('_')[-2]
-            if projectName not in self.projectSetting()['projects']:
+            if projectName not in self.projectSetting()['DataBase']:
                 QtWidgets.QMessageBox.warning(self, 'Warning', u'请检查项目名是否正确!!!')
                 return False
             characterName = cmds.ls('*_*_AST', type='transform')[0].rsplit('_',2)[0]
@@ -565,7 +870,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         print("check_rig")
         if len(cmds.ls('*_*_AST', type='transform')) == 1:
             projectName = cmds.ls('*_*_AST', type='transform')[0].split('_')[-2]
-            if projectName not in self.projectSetting()['projects']:
+            if projectName not in self.projectSetting()['DataBase']:
                 QtWidgets.QMessageBox.warning(self, 'Warning', '请检查项目名是否正确!!!')
                 return False
             # characterName = cmds.ls('*_*_AST', type='transform')[0].split('_')[0]  # 改命名规则
@@ -628,6 +933,94 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 self.assemblies = assemblies
                 return "isSC"
 
+    def get_scene_references(self):
+        """ 获取场景中全部Reference节点及其文件名
+
+        :rtype: [(refNode, fileName), ...]
+        """
+        references = []
+        for refNode in cmds.ls(type='reference'):
+            try:
+                # shortName 只取文件名，例如 BaSiTeV4_hi_rig.ma
+                fileName = cmds.referenceQuery(refNode, filename=True, shortName=True)
+            except RuntimeError:
+                # sharedReferenceNode 等没有关联文件的节点直接跳过
+                continue
+            references.append((refNode, fileName))
+        return references
+
+    def get_selected_references(self):
+        """ 获取当前在maya中选中物体所属的Reference节点
+
+        :rtype: set(refNode)
+        """
+        selected = set()
+        for obj in cmds.ls(sl=True, long=True) or []:
+            try:
+                selected.add(cmds.referenceQuery(obj, referenceNode=True))
+            except RuntimeError:
+                continue
+        return selected
+
+    def show_reference_dialog(self):
+        """ Action发布第1步：弹出Reference选择窗口，已在maya中选中的Reference自动打勾
+
+        :rtype: bool  用户点【确定】返回True，否则False
+        """
+        references = self.get_scene_references()
+        if not references:
+            QtWidgets.QMessageBox.warning(self, 'Warning', u'场景中找不到Reference,请检查!!!')
+            return False
+        checked = self.get_selected_references()
+        dialog = ReferenceSelectDialog(references, checked_refs=checked, parent=self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            self.selectedRefs = dialog.checkedReferences()
+            return True
+        return False
+
+    def _ref_project_asset(self, refNode):
+        """ 从reference反查 (项目名, 资产名)
+
+        路径范例：Y:/MCCProject/GOF/Assets/Characters/BaSiTeV4/.../BaSiTeV4_hi_rig.ma
+                  ->  项目=GOF(索引2)  资产=BaSiTeV4(索引5)
+        """
+        try:
+            path = cmds.referenceQuery(refNode, filename=True, withoutCopyNumber=True)
+        except RuntimeError:
+            return None, None
+        parts = path.replace('\\', '/').split('/')
+        project = parts[2] if len(parts) > 2 else None
+        asset = parts[5] if len(parts) > 5 else None
+        return project, asset
+
+    def build_action_items(self):
+        """ Action发布第2步：按勾选的Reference个数，从上往下生成对应数量的发布组件 """
+        layout = self.action_items_layout
+        if layout is None:
+            return
+        # 清空旧组件
+        while layout.count():
+            item = layout.takeAt(0)
+            wgt = item.widget()
+            if wgt is not None:
+                wgt.setParent(None)
+                wgt.deleteLater()
+        self.action_items = []
+
+        for refNode, _fname in self.selectedRefs:
+            _proj, asset = self._ref_project_asset(refNode)
+            item = ActionPublishItem(asset_name=asset, ref_node=refNode, parent=self)
+            item.changed.connect(self._action_item_changed)
+            layout.addWidget(item)
+            self.action_items.append(item)
+        layout.addStretch()
+        self._action_item_changed()
+
+    def _action_item_changed(self):
+        """ 任一组件内容变化时，刷新标题与Yes按钮可用状态 """
+        self.update_Title_ac()
+        self.isYesEnable_ac()
+
     def check_ac(self):
         """ 检查action资产是否符合发布规范，并设置UI显示
 
@@ -649,7 +1042,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         assetPath = cmds.referenceQuery(assetRef, filename=True)
         projectName = assetPath.split('/')[2]
         characterName = assetPath.split('/')[5]
-        if projectName not in self.projectSetting()['projects']:
+        if projectName not in self.projectSetting()['DataBase']:
             QtWidgets.QMessageBox.warning(self, 'Warning', u'请检查资产的项目名是否正确!!!')
             return False
         self.ui.publishProj_comb_ac.setCurrentText(projectName)
@@ -737,11 +1130,15 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         return projectName, characterName, actionName, path, start, end
 
     def update_Title_ac(self):
-        """ ac栏更新标题 """
-        projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
-        # projectName, characterName, actionCHName, actionName, publishType, path, start, end = self.get_publishInfo_ac()
-        self.ui.Title_label.setText(u"<h3>确定发布 {0} 到 \n{1} ？</h3>".format(characterName + '_' + actionName,
-                                                                          path))
+        """ ac栏更新标题：汇总当前勾选的组件要发布的动作 """
+        infos = [it.get_info() for it in self.action_items]
+        enabled = [i for i in infos if i['enabled']]
+        if not enabled:
+            self.ui.Title_label.setText(u"<h3>请勾选要发布的动作</h3>")
+            return
+        names = [u"{0}_{1}".format(i['asset_name'], i['action_name']) for i in enabled]
+        self.ui.Title_label.setText(u"<h3>确定发布 {0} 个动作：{1} ？</h3>".format(len(enabled),
+                                                                          u" , ".join(names)))
 
     def update_time_slider_state(self):
         # _type = self.ui.publishType_comb_ac.currentText()
@@ -760,21 +1157,25 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.ui.Yes_bttn.setEnabled(True)
 
     def isYesEnable_ac(self):
-        projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
-        # projectName, characterName, actionCHName, actionName, type, path, start, end = self.get_publishInfo_ac()
-
-        if type == u"**" or actionName == "" or characterName == "":
+        """ 至少勾选一个动作，且所有勾选的组件都填好资产名和动作名时，才允许发布 """
+        infos = [it.get_info() for it in self.action_items]
+        enabled = [i for i in infos if i['enabled']]
+        if not enabled:
             self.ui.Yes_bttn.setEnabled(False)
-        else:
-            self.ui.Yes_bttn.setEnabled(True)
+            return
+        for info in enabled:
+            if not info['asset_name'] or not info['action_name']:
+                self.ui.Yes_bttn.setEnabled(False)
+                return
+        self.ui.Yes_bttn.setEnabled(True)
 
-    def isFBXEnable_ac(self):
-        projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
-        # projectName, characterName, actionCHName, actionName, type, path, start, end = self.get_publishInfo_ac()
-        if type == u"**" or type == "Pose":
-            self.ui.fbx_cBox_4.setEnabled(False)
-        else:
-            self.ui.fbx_cBox_4.setEnabled(True)
+    # def isFBXEnable_ac(self):
+    #     projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
+    #     # projectName, characterName, actionCHName, actionName, type, path, start, end = self.get_publishInfo_ac()
+    #     if type == u"**" or type == "Pose":
+    #         self.ui.fbx_cBox_4.setEnabled(False)
+    #     else:
+    #         self.ui.fbx_cBox_4.setEnabled(True)
 
     def renderIcon_ac(self):
         """
@@ -970,7 +1371,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         elif tab == 2:
             self._scenePublish()
         elif tab == 3:
-            self._actionPublish()
+            self._actionsPublish()
 
     def _modPublish(self):
         """
@@ -1561,6 +1962,195 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.exec_()
         self.ui.log_progressBar.setVisible(False)
 
+    def _actionsPublish(self):
+        """
+        动作库发布（总）：循环发布所有勾选的组件对应的动作。
+        若勾选“同时保存到本地”，则在全部发布完成后，让用户选择一个文件夹，
+        把刚刚发布成功的fbx拷贝过去（不重存maya、不重复导出fbx）。
+        """
+        if not self.action_items:
+            QtWidgets.QMessageBox.warning(self, 'Warning', u'没有要发布的动作，请先勾选Reference!!!')
+            return
+
+        # 发布前统一检查动画层
+        if not self.validateAnimLayers():
+            return
+
+        # 只发布勾选的组件
+        infos = [it.get_info() for it in self.action_items if it.get_info()['enabled']]
+        if not infos:
+            QtWidgets.QMessageBox.warning(self, 'Warning', u'没有勾选要发布的动作!!!')
+            return
+
+        self._log = "log:"
+        self.ui.log_treeWgt.clear()
+        self.ui.log_progressBar.setVisible(True)
+        self.ui.log_progressBar.setValue(0)
+        self._last_published_fbx = []  # 清空上次的记录，本轮重新收集
+
+        Pub = publish.Publish()
+        total = len(infos)
+        success = 0
+        for index, info in enumerate(infos):
+            if self._publishOneAction(info, Pub):
+                success += 1
+            self.ui.log_progressBar.setValue(int((index + 1) * 100.0 / total))
+
+        self.ui.log_progressBar.setValue(100)
+        ''' =============== END =============================================== '''
+        msg = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Information, u"提示：",
+                                    u"<h3>动作发布完成！成功 {0}/{1}\n查看log获取更多细节?</h3>".format(success, total))
+        msg.setStandardButtons(QtWidgets.QMessageBox.Cancel)
+        msg.setDefaultButton(QtWidgets.QMessageBox.Cancel)
+        msg.setDetailedText(self._log)
+        msg.exec_()
+        self.ui.log_progressBar.setVisible(False)
+
+        # 同时保存到本地：把刚刚发布成功的fbx拷贝到用户选择的文件夹
+        if self.ui.save_action_cBox.isChecked():
+            self._saveToLocal()
+
+    def _action_publish_path(self, refNode):
+        """ 根据Reference的路径生成动作库发布路径（自动区分 Characters / Props 等类型）
+
+        例如 Reference 路径为：
+            Y:/MCCProject/GOF/Assets/Props/BiShouB//Rig/BiShouB_hi_rig.ma
+        资产根目录取到 .../Assets/<类型>/<资产名>，即 .../Assets/Props/BiShouB，
+        动作库路径即：
+            Y:/MCCProject/GOF/Assets/Props/BiShouB/Action
+
+        :rtype: str  解析失败返回None
+        """
+        if not refNode:
+            return None
+        try:
+            ref_path = cmds.referenceQuery(refNode, filename=True, withoutCopyNumber=True)
+        except RuntimeError:
+            return None
+        parts = ref_path.replace('\\', '/').split('/')
+        asset_folder = self.projectSetting()['assetFolder']  # 一般为 "Assets"
+        if asset_folder not in parts:
+            return None
+        idx = parts.index(asset_folder)
+        # 取到 Assets/<类型>/<资产名> 这一层作为资产根目录
+        if len(parts) < idx + 3:
+            return None
+        asset_root = '/'.join(parts[:idx + 3])
+        return '{0}/{1}'.format(asset_root, self.projectSetting()['actionFolder'])
+
+    def _ref_namespace(self, refNode):
+        """ 取得reference的命名空间（不含前导冒号），失败返回None """
+        if not refNode:
+            return None
+        try:
+            ns = cmds.referenceQuery(refNode, namespace=True)
+        except RuntimeError:
+            return None
+        if not ns:
+            return None
+        return ns.lstrip(':') or None
+
+    def _export_one_fbx(self, info, start, end, folder):
+        """ 导出单个动作的fbx到指定文件夹，命名为 资产名_动作名.fbx
+
+        :rtype: str|None  导出成功返回fbx路径，失败返回None
+        """
+        characterName = info['asset_name']
+        actionName = info['action_name']
+        label = u"{0}_{1}".format(characterName or u"?", actionName or u"?")
+        namespace = self._ref_namespace(info.get('ref_node'))
+        if not namespace:
+            self.logMsg(None, u"{0} fbx发布失败：无法确定角色命名空间".format(label), "failed")
+            return None
+        try:
+            fbxPath = '%s/%s_%s.fbx' % (folder, characterName, actionName)
+            self.ani_fbx_export(fbxPath, start, end, namespace=namespace)
+            self.logMsg(None, u"{0} fbx已发布：{1}".format(label, fbxPath), "succeed")
+            return fbxPath
+        except Exception as e:
+            self.logMsg(None, u"{0} fbx发布失败：{1}".format(label, e), "failed")
+            return None
+
+    def _publishOneAction(self, info, Pub=None):
+        """ 发布单个动作（保存到动作库路径）
+
+        :param info: ActionPublishItem.get_info() 返回的字典
+        :rtype: bool  发布成功返回True
+        """
+        Pub = Pub or publish.Publish()
+        characterName = info['asset_name']
+        actionName = info['action_name']
+        label = u"{0}_{1}".format(characterName or u"?", actionName or u"?")
+
+        ''' =============== 检查 =============================================== '''
+        if not actionName or actionName == u"**":
+            self.logMsg(None, u"{0}：动作名为空，已跳过".format(characterName or u"?"), "failed")
+            return False
+        if not characterName:
+            self.logMsg(None, u"{0}：资产名为空，已跳过".format(actionName), "failed")
+            return False
+        try:
+            start = int(info['start'])
+            end = int(info['end'])
+        except (ValueError, TypeError):
+            self.logMsg(None, u"{0}：帧数范围无效，已跳过".format(label), "failed")
+            return False
+        if start >= end:
+            self.logMsg(None, u"{0}：结束帧需大于起始帧，已跳过".format(label), "failed")
+            return False
+
+        ''' =============== 保存maya档 =============================================== '''
+        path = self._action_publish_path(info.get('ref_node'))
+        if not path:
+            self.logMsg(None, u"{0}：无法从Reference路径解析发布目录，已跳过".format(label), "failed")
+            return False
+        try:
+            Pub.makePath(path)
+            filePath = '%s/%s_%s.ma' % (path, characterName, actionName)
+            cmds.file(rename=filePath)
+            cmds.file(save=True, type='mayaAscii')
+            self.logMsg(None, u"{0} 已发布：{1}".format(label, filePath), "succeed")
+            ok = True
+        except Exception as e:
+            self.logMsg(None, u"{0} 发布失败：{1}".format(label, e), "failed")
+            ok = False
+
+        ''' =============== 发布fbx =============================================== '''
+        fbx_path = self._export_one_fbx(info, start, end, path)
+        if fbx_path:
+            self._last_published_fbx.append(fbx_path)
+
+        return ok
+
+    def _saveToLocal(self):
+        """ 同时保存到本地：把刚刚发布成功的fbx拷贝到用户选择的文件夹
+
+        不重存maya、不重复导出fbx——直接拷贝动作库里刚生成的同一份fbx。
+        """
+        if not self._last_published_fbx:
+            QtWidgets.QMessageBox.information(self, u"提示", u"没有可拷贝的fbx（本次未成功发布fbx）")
+            return
+        result = cmds.fileDialog2(fileMode=3, caption=u"选择保存fbx的文件夹")
+        if not result:
+            return
+        folder = result[0]
+
+        copied = 0
+        for src in self._last_published_fbx:
+            name = os.path.basename(src)
+            try:
+                if not os.path.isfile(src):
+                    self.logMsg(None, u"源fbx不存在，已跳过：{0}".format(src), "failed")
+                    continue
+                dst = shutil.copy(src, folder)
+                copied += 1
+                self.logMsg(None, u"已拷贝到本地：{0}".format(dst), "succeed")
+            except Exception as e:
+                self.logMsg(None, u"拷贝失败 {0}：{1}".format(name, e), "failed")
+
+        QtWidgets.QMessageBox.information(self, u"提示",
+                                          u"已拷贝 {0} 个fbx到：\n{1}".format(copied, folder))
+
     def _actionPublish(self):
         """
         动作库发布
@@ -1622,14 +2212,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.logMsg(None, u"maya保存失败：%s" % e, "failed")
         self.ui.log_progressBar.setValue(80)
         ''' =============== 发布fbx =============================================== '''
-        if self.ui.fbx_cBox_4.isChecked():
+        # if self.ui.fbx_cBox_4.isChecked():
             # if publishType == "Animation":
-            try:
-                filePath = '%s/%s_%s.fbx' % (path, characterName, actionName)
-                self.ani_fbx_export(filePath, start, end)
-                self.logMsg(None, u"fbx已发布", "succeed")
-            except Exception as e:
-                self.logMsg(None, u"fbx发布失败:%s" % e, "failed")
+        try:
+            filePath = '%s/%s_%s.fbx' % (path, characterName, actionName)
+            self.ani_fbx_export(filePath, start, end)
+            self.logMsg(None, u"fbx已发布", "succeed")
+        except Exception as e:
+            self.logMsg(None, u"fbx发布失败:%s" % e, "failed")
         self.ui.log_progressBar.setValue(100)
         ''' =============== END =============================================== '''
         msg = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Information, u"提示：",
@@ -1941,124 +2531,124 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             if conn is not None:
                 conn.close()
 
-    def createAssetsForCGT(self, proj_name, assets_name, assets_CHname, assets_type):
-        """
-        建立CGT
-        :param proj_name:
-        :param assets_name:
-        :param assets_CHname:
-        :param assets_type:
-        :return:
-        """
-        t_tw = cgtw2.tw()
-        projectdiction = self.projectSetting()['projectdiction'][proj_name]
-        t_assets_id_list = t_tw.info.get_id(db=projectdiction,
-                                            module='asset',
-                                            filter_list=[['asset.entity', '=', assets_name]])
-        if t_assets_id_list:
-            return False
-        else:
-            infoID = t_tw.info.create(db=projectdiction,
-                                      module='asset',
-                                      sign_data_dict={'asset.entity': assets_name,
-                                                      'asset.assetstapy': assets_type,
-                                                      'asset.cn_name': assets_CHname},
-                                      is_return_id=True)
-            return infoID
+    # def createAssetsForCGT(self, proj_name, assets_name, assets_CHname, assets_type):
+    #     """
+    #     建立CGT
+    #     :param proj_name:
+    #     :param assets_name:
+    #     :param assets_CHname:
+    #     :param assets_type:
+    #     :return:
+    #     """
+    #     t_tw = cgtw2.tw()
+    #     projectdiction = self.projectSetting()['projectdiction'][proj_name]
+    #     t_assets_id_list = t_tw.info.get_id(db=projectdiction,
+    #                                         module='asset',
+    #                                         filter_list=[['asset.entity', '=', assets_name]])
+    #     if t_assets_id_list:
+    #         return False
+    #     else:
+    #         infoID = t_tw.info.create(db=projectdiction,
+    #                                   module='asset',
+    #                                   sign_data_dict={'asset.entity': assets_name,
+    #                                                   'asset.assetstapy': assets_type,
+    #                                                   'asset.cn_name': assets_CHname},
+    #                                   is_return_id=True)
+    #         return infoID
 
-    def createScenesForCGT(self, proj_name, assets_name, assets_CHname, assets_type):
-        """
-        建立CGT
-        """
-        t_tw = cgtw2.tw()
-        TW_proj = self.projectSetting()['projectdiction'][proj_name]
-        t_assets_id_list = t_tw.info.get_id(db=TW_proj,
-                                            module='scenes',
-                                            filter_list=[['scenes.entity', '=', assets_name]])
-        if t_assets_id_list:
-            return False
-        else:
-            infoID = t_tw.info.create(db=TW_proj, module='scenes',
-                                      sign_data_dict={'scenes.entity': assets_name,
-                                                      'scenes.scenesassetstype': assets_type,
-                                                      'scenes.assetsnamecn': assets_CHname},
-                                      is_return_id=True)
-            return infoID
+    # def createScenesForCGT(self, proj_name, assets_name, assets_CHname, assets_type):
+    #     """
+    #     建立CGT
+    #     """
+    #     t_tw = cgtw2.tw()
+    #     TW_proj = self.projectSetting()['projectdiction'][proj_name]
+    #     t_assets_id_list = t_tw.info.get_id(db=TW_proj,
+    #                                         module='scenes',
+    #                                         filter_list=[['scenes.entity', '=', assets_name]])
+    #     if t_assets_id_list:
+    #         return False
+    #     else:
+    #         infoID = t_tw.info.create(db=TW_proj, module='scenes',
+    #                                   sign_data_dict={'scenes.entity': assets_name,
+    #                                                   'scenes.scenesassetstype': assets_type,
+    #                                                   'scenes.assetsnamecn': assets_CHname},
+    #                                   is_return_id=True)
+    #         return infoID
 
-    def createMapForCGT(self, proj_name, assets_name, assets_CHname):
-        """
-        建立CGT——MAP
-        """
-        t_tw = cgtw2.tw()
-        TW_proj = self.projectSetting()['projectdiction'][proj_name]
-        t_assets_id_list = t_tw.info.get_id(db=TW_proj,
-                                            module='map',
-                                            filter_list=[['map.entity', '=', assets_name]])
-        if t_assets_id_list:
-            return False
-        else:
-            infoID = t_tw.info.create(db=TW_proj,
-                                      module='map',
-                                      sign_data_dict={'map.entity': assets_name,
-                                                      'map.type': 'Map',
-                                                      'map.mapnamecn': assets_CHname},
-                                      is_return_id=True)
-            return infoID
+    # def createMapForCGT(self, proj_name, assets_name, assets_CHname):
+    #     """
+    #     建立CGT——MAP
+    #     """
+    #     t_tw = cgtw2.tw()
+    #     TW_proj = self.projectSetting()['projectdiction'][proj_name]
+    #     t_assets_id_list = t_tw.info.get_id(db=TW_proj,
+    #                                         module='map',
+    #                                         filter_list=[['map.entity', '=', assets_name]])
+    #     if t_assets_id_list:
+    #         return False
+    #     else:
+    #         infoID = t_tw.info.create(db=TW_proj,
+    #                                   module='map',
+    #                                   sign_data_dict={'map.entity': assets_name,
+    #                                                   'map.type': 'Map',
+    #                                                   'map.mapnamecn': assets_CHname},
+    #                                   is_return_id=True)
+    #         return infoID
 
-    def createNoteForCGT(self, module, proj, assets_name):
-        """
-        发布NOTE
-        :param module:
-        :param proj:
-        :param assets_name:
-        :return:
-        """
-        # print("_notePublish")
-        t_tw = cgtw2.tw()
-        projectdiction = self.projectSetting()['projectdiction'][proj]
-        text = self.ui.info_lineEdit.text()
-        if module == 'asset':
-            entity = 'asset.entity'
-        elif module == 'scenes':
-            entity = 'scenes.entity'
-        elif module == 'map':
-            entity = 'map.entity'
-        t_id_list = t_tw.task.get_id(projectdiction,
-                                     module=module,
-                                     filter_list=[[entity, '=', assets_name]])
-        t_tw.note.create(db=projectdiction,
-                         module=module,
-                         module_type='task',
-                         link_id_list=t_id_list,
-                         text=text)
+    # def createNoteForCGT(self, module, proj, assets_name):
+    #     """
+    #     发布NOTE
+    #     :param module:
+    #     :param proj:
+    #     :param assets_name:
+    #     :return:
+    #     """
+    #     # print("_notePublish")
+    #     t_tw = cgtw2.tw()
+    #     projectdiction = self.projectSetting()['projectdiction'][proj]
+    #     text = self.ui.info_lineEdit.text()
+    #     if module == 'asset':
+    #         entity = 'asset.entity'
+    #     elif module == 'scenes':
+    #         entity = 'scenes.entity'
+    #     elif module == 'map':
+    #         entity = 'map.entity'
+    #     t_id_list = t_tw.task.get_id(projectdiction,
+    #                                  module=module,
+    #                                  filter_list=[[entity, '=', assets_name]])
+    #     t_tw.note.create(db=projectdiction,
+    #                      module=module,
+    #                      module_type='task',
+    #                      link_id_list=t_id_list,
+    #                      text=text)
 
-    def createImageForCGT(self, module, proj_name, assets_name, assets_icon):
-        """
-        CGT没有icon则发布icon
-        """
-        t_tw = cgtw2.tw()
-        TW_proj = self.projectSetting()['projectdiction'][proj_name]
-        if module == 'asset':
-            entity = 'asset.entity'
-            image = 'asset.image'
-        elif module == 'scenes':
-            entity = 'scenes.entity'
-            image = 'scenes.image'
-        elif module == 'map':
-            entity = 'map.entity'
-            image = 'map.image'
-        t_asset_ids = t_tw.info.get_id(db=TW_proj,
-                                       module=module,
-                                       filter_list=[[entity, '=', assets_name]])
-        TW_dictionInfo = t_tw.info.get(TW_proj, module, t_asset_ids, [entity, image])
-        if TW_dictionInfo[0][image] == "":
-            t_tw.info.set_image(db=TW_proj,
-                                module=module,
-                                id_list=t_asset_ids,
-                                field_sign=image,
-                                img_path=assets_icon)
-        else:
-            print(u"已存在:", TW_dictionInfo[0][image])
+    # def createImageForCGT(self, module, proj_name, assets_name, assets_icon):
+    #     """
+    #     CGT没有icon则发布icon
+    #     """
+    #     t_tw = cgtw2.tw()
+    #     TW_proj = self.projectSetting()['projectdiction'][proj_name]
+    #     if module == 'asset':
+    #         entity = 'asset.entity'
+    #         image = 'asset.image'
+    #     elif module == 'scenes':
+    #         entity = 'scenes.entity'
+    #         image = 'scenes.image'
+    #     elif module == 'map':
+    #         entity = 'map.entity'
+    #         image = 'map.image'
+    #     t_asset_ids = t_tw.info.get_id(db=TW_proj,
+    #                                    module=module,
+    #                                    filter_list=[[entity, '=', assets_name]])
+    #     TW_dictionInfo = t_tw.info.get(TW_proj, module, t_asset_ids, [entity, image])
+    #     if TW_dictionInfo[0][image] == "":
+    #         t_tw.info.set_image(db=TW_proj,
+    #                             module=module,
+    #                             id_list=t_asset_ids,
+    #                             field_sign=image,
+    #                             img_path=assets_icon)
+    #     else:
+    #         print(u"已存在:", TW_dictionInfo[0][image])
 
     def approvedForSQL(self, module, db, asset_name, key):
         if module == 'asset':
@@ -2091,49 +2681,49 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             if conn is not None:
                 conn.close()
 
-    def approvedForCGT(self, module, proj_name, assets_name):
-        """
-        直接通过
-        """
-        t_tw = cgtw2.tw()
-        TW_proj = self.projectSetting()['projectdiction'][proj_name]
+    # def approvedForCGT(self, module, proj_name, assets_name):
+    #     """
+    #     直接通过
+    #     """
+    #     t_tw = cgtw2.tw()
+    #     TW_proj = self.projectSetting()['projectdiction'][proj_name]
 
-        if module == 'scenes':
-            entity = 'scenes.entity'
-            approve = 'scenes.maya'
-        elif module == 'map':
-            entity = 'map.entity'
-            approve = 'map.maya'
-        else:
-            entity = 'asset.entity'
-            approve = 'asset.maya'
+    #     if module == 'scenes':
+    #         entity = 'scenes.entity'
+    #         approve = 'scenes.maya'
+    #     elif module == 'map':
+    #         entity = 'map.entity'
+    #         approve = 'map.maya'
+    #     else:
+    #         entity = 'asset.entity'
+    #         approve = 'asset.maya'
 
-        id = t_tw.info.get_id(db=TW_proj,
-                              module=module,
-                              filter_list=[[entity, '=', assets_name]])
-        result = t_tw.info.set(db=TW_proj, module=module, id_list=id, sign_data_dict={approve: u'完成'})
-        return result
+    #     id = t_tw.info.get_id(db=TW_proj,
+    #                           module=module,
+    #                           filter_list=[[entity, '=', assets_name]])
+    #     result = t_tw.info.set(db=TW_proj, module=module, id_list=id, sign_data_dict={approve: u'完成'})
+    #     return result
 
-    def createTask(self, proj_name, assets_name, assets_icon):
-        """
-        发布任务并提交icon审核
-        :param proj_name:
-        :param assets_name:
-        :param assets_icon:
-        :return:
-        """
-        t_tw = cgtw2.tw()
-        TW_proj = self.projectSetting()['projectdiction'][proj_name]
-        ids = t_tw.info.get_id(db=TW_proj, module='asset', filter_list=[['asset.entity', '=', assets_name]])
-        t_pipeline_id_list = t_tw.pipeline.get_id(TW_proj,
-                                                  filter_list=[['module', '=', 'asset'], 'and', ['entity', '=', 'Mod']])
-        t_flow_list = t_tw.flow.get_data(TW_proj, t_pipeline_id_list)
-        for _flow in t_flow_list:
-            _pipeline_id = _flow['pipeline_id']
-            _flow_id = _flow['flow_id']
-            _pipeline_name = _flow['pipeline_name']
-            t_res = t_tw.task.create(TW_proj, 'asset', ids[0], _pipeline_id, _pipeline_name, _flow_id, True)
-            t_tw.task.submit(TW_proj, 'asset', t_res, [assets_icon])
+    # def createTask(self, proj_name, assets_name, assets_icon):
+    #     """
+    #     发布任务并提交icon审核
+    #     :param proj_name:
+    #     :param assets_name:
+    #     :param assets_icon:
+    #     :return:
+    #     """
+    #     t_tw = cgtw2.tw()
+    #     TW_proj = self.projectSetting()['projectdiction'][proj_name]
+    #     ids = t_tw.info.get_id(db=TW_proj, module='asset', filter_list=[['asset.entity', '=', assets_name]])
+    #     t_pipeline_id_list = t_tw.pipeline.get_id(TW_proj,
+    #                                               filter_list=[['module', '=', 'asset'], 'and', ['entity', '=', 'Mod']])
+    #     t_flow_list = t_tw.flow.get_data(TW_proj, t_pipeline_id_list)
+    #     for _flow in t_flow_list:
+    #         _pipeline_id = _flow['pipeline_id']
+    #         _flow_id = _flow['flow_id']
+    #         _pipeline_name = _flow['pipeline_name']
+    #         t_res = t_tw.task.create(TW_proj, 'asset', ids[0], _pipeline_id, _pipeline_name, _flow_id, True)
+    #         t_tw.task.submit(TW_proj, 'asset', t_res, [assets_icon])
 
     def export_GPU(self, grp_name, asset_name, history=True):
         """
@@ -2401,34 +2991,37 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         fbxPath = '%s/%s.fbx' % (fbxFolderPath, asset_name)
         self.Pub.exportFBX(False, 1, 200, fbxPath)
 
-    def ani_fbx_export(self, fbxPath, start, end):
+    def ani_fbx_export(self, fbxPath, start, end, namespace=None):
         """发布动画fbx
 
-        根据当前选择的物体（控制器或模型）推断角色所在的命名空间，
-        再选中该角色的 ``<namespace>:DeformationSystem`` 骨骼组，
-        最后调用 ``exportFBX`` 导出带烘焙动画的 fbx。
+        选中该角色的 ``<namespace>:DeformationSystem`` 骨骼组，
+        再调用 ``exportFBX`` 导出带烘焙动画的 fbx。
+
+        :param namespace: 要导出的角色命名空间（不含前导冒号）。为None时
+                          从当前选择推断（兼容旧的单个发布流程）。
         """
-        print("开始导出动画fbx", fbxPath, start, end)
+        print("开始导出动画fbx", fbxPath, start, end, namespace)
 
-        # 1. 从当前选择推断角色命名空间
-        selection = cmds.ls(sl=True, long=True) or []
-        if not selection:
-            raise RuntimeError(u"请先选择角色身上的任意物体（控制器或模型）后再导出fbx")
+        # 记录用户的原始选择，导出后还原
+        original_selection = cmds.ls(sl=True, long=True) or []
 
-        namespaces = []
-        for node in selection:
-            leaf = node.split('|')[-1]      # 去掉 DAG 路径，只保留带命名空间的节点名
-            ns = leaf.rpartition(':')[0]    # 命名空间（兼容嵌套），无命名空间时为空串
-            if ns and ns not in namespaces:
-                namespaces.append(ns)
+        if namespace is None:
+            # 从当前选择推断角色命名空间
+            if not original_selection:
+                raise RuntimeError(u"请先选择角色身上的任意物体（控制器或模型）后再导出fbx")
+            namespaces = []
+            for node in original_selection:
+                leaf = node.split('|')[-1]      # 去掉 DAG 路径，只保留带命名空间的节点名
+                ns = leaf.rpartition(':')[0]    # 命名空间（兼容嵌套），无命名空间时为空串
+                if ns and ns not in namespaces:
+                    namespaces.append(ns)
+            if not namespaces:
+                raise RuntimeError(u"选中的物体没有命名空间，无法确定是哪个角色，请确认选中的是引用进来的角色")
+            if len(namespaces) > 1:
+                cmds.warning(u"选择里包含多个角色 {0}，本次只导出第一个：{1}".format(namespaces, namespaces[0]))
+            namespace = namespaces[0]
 
-        if not namespaces:
-            raise RuntimeError(u"选中的物体没有命名空间，无法确定是哪个角色，请确认选中的是引用进来的角色")
-        if len(namespaces) > 1:
-            cmds.warning(u"选择里包含多个角色 {0}，本次只导出第一个：{1}".format(namespaces, namespaces[0]))
-        namespace = namespaces[0]
-
-        # 2. 选中该角色的骨骼组 <namespace>:DeformationSystem
+        # 选中该角色的骨骼组 <namespace>:DeformationSystem
         deformGrp = '{0}:DeformationSystem'.format(namespace)
         if not cmds.objExists(deformGrp):
             raise RuntimeError(u"找不到角色 {0} 的骨骼组：{1}".format(namespace, deformGrp))
@@ -2436,14 +3029,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         cmds.select(deformGrp, replace=True)
         print(u"导出角色：{0}  骨骼组：{1}".format(namespace, deformGrp))
 
-        # 3. 导出 fbx（exportFBX 内部用 FBXExport -s 导出当前选择及其层级）
+        # 导出 fbx（exportFBX 内部用 FBXExport -s 导出当前选择及其层级）
         try:
             self.Pub.exportFBX(True, start, end, fbxPath)
         finally:
             # 还原用户的原始选择
             cmds.select(clear=True)
-            if selection:
-                cmds.select(selection)
+            if original_selection:
+                cmds.select(original_selection)
 
 
 def showWindow(tab=0, _project=None, _type=None):

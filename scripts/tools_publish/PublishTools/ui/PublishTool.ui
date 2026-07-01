@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>789</width>
-    <height>587</height>
+    <width>1072</width>
+    <height>637</height>
    </rect>
   </property>
   <property name="font">
@@ -2198,7 +2198,7 @@ color: rgb(120, 120, 120);</string>
                  <item row="0" column="0">
                   <widget class="QLabel" name="Preview_label_ac">
                    <property name="sizePolicy">
-                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
                      <horstretch>0</horstretch>
                      <verstretch>0</verstretch>
                     </sizepolicy>
@@ -2211,8 +2211,8 @@ color: rgb(120, 120, 120);</string>
                    </property>
                    <property name="maximumSize">
                     <size>
-                     <width>200</width>
-                     <height>200</height>
+                     <width>800</width>
+                     <height>800</height>
                     </size>
                    </property>
                    <property name="text">
@@ -2225,22 +2225,6 @@ color: rgb(120, 120, 120);</string>
                  </item>
                 </layout>
                </widget>
-              </item>
-              <item>
-               <spacer name="verticalSpacer_7">
-                <property name="orientation">
-                 <enum>Qt::Vertical</enum>
-                </property>
-                <property name="sizeType">
-                 <enum>QSizePolicy::Preferred</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>20</width>
-                  <height>40</height>
-                 </size>
-                </property>
-               </spacer>
               </item>
               <item>
                <layout class="QHBoxLayout" name="horizontalLayout_27">
@@ -2568,7 +2552,7 @@ color: rgb(120, 120, 120);</string>
                    </font>
                   </property>
                   <property name="text">
-                   <string>Time range：</string>
+                   <string>帧数范围：</string>
                   </property>
                   <property name="alignment">
                    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -2578,7 +2562,7 @@ color: rgb(120, 120, 120);</string>
                 <item>
                  <widget class="QRadioButton" name="time_slider_rBttn">
                   <property name="text">
-                   <string>Time Slider</string>
+                   <string>时间线</string>
                   </property>
                   <property name="checked">
                    <bool>true</bool>
@@ -2588,7 +2572,7 @@ color: rgb(120, 120, 120);</string>
                 <item>
                  <widget class="QRadioButton" name="start_end_rbttn">
                   <property name="text">
-                   <string>Start/End</string>
+                   <string>自定义范围</string>
                   </property>
                  </widget>
                 </item>
@@ -2722,21 +2706,11 @@ color: rgb(120, 120, 120);</string>
                  <property name="spacing">
                   <number>0</number>
                  </property>
-                 <item row="0" column="1">
-                  <widget class="QCheckBox" name="approved_cBox_4">
-                   <property name="font">
-                    <font>
-                     <family>Microsoft YaHei UI</family>
-                     <pointsize>10</pointsize>
-                    </font>
-                   </property>
-                   <property name="text">
-                    <string>Approved</string>
-                   </property>
-                  </widget>
-                 </item>
                  <item row="0" column="0">
-                  <widget class="QCheckBox" name="fbx_cBox_4">
+                  <widget class="QCheckBox" name="save_action_cBox">
+                   <property name="enabled">
+                    <bool>true</bool>
+                   </property>
                    <property name="maximumSize">
                     <size>
                      <width>16777215</width>
@@ -2750,10 +2724,10 @@ color: rgb(120, 120, 120);</string>
                     </font>
                    </property>
                    <property name="text">
-                    <string>发布FBX</string>
+                    <string>同时保存到本地</string>
                    </property>
                    <property name="checked">
-                    <bool>true</bool>
+                    <bool>false</bool>
                    </property>
                   </widget>
                  </item>
@@ -2790,8 +2764,17 @@ color: rgb(120, 120, 120);</string>
        <property name="spacing">
         <number>0</number>
        </property>
+       <property name="sizeConstraint">
+        <enum>QLayout::SetMinimumSize</enum>
+       </property>
        <item>
         <widget class="QLineEdit" name="logName_lineEdit">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="minimumSize">
           <size>
            <width>0</width>
@@ -2820,14 +2803,14 @@ color: rgb(120, 120, 120);</string>
        <item>
         <widget class="QLineEdit" name="info_lineEdit">
          <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
            <horstretch>0</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
          </property>
          <property name="minimumSize">
           <size>
-           <width>200</width>
+           <width>0</width>
            <height>0</height>
           </size>
          </property>

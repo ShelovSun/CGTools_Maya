@@ -18,7 +18,7 @@ from my_vendor.Qt import QtCore
 from my_vendor.Qt import QtGui
 from my_vendor.Qt import QtWidgets
 from shiboken2 import wrapInstance
-from utils import jsonHelper, publish, messageBox
+from utils import publish, messageBox
 # from sources import assetTools
 from widgets import faverWidget, am_main, previewWidget, am_pixmap
 
@@ -56,6 +56,12 @@ class SceneToolsUI(QtWidgets.QWidget):
         self.ui = loader
         f.close()
 
+        # 控件即界面：把 .ui 加载出的界面挂到自身，使 SceneToolsUI 本身即完整控件，
+        # tabChanged 里可直接 addWidget(self.scene)（与 AssetToolsUI 一致）
+        _layout = QtWidgets.QVBoxLayout(self)
+        _layout.setContentsMargins(0, 0, 0, 0)
+        _layout.addWidget(self.ui)
+
         self.asset_item_userRole = QtCore.Qt.UserRole
         # self.type_item_userRole = QtCore.Qt.UserRole + 1
         self.scenePub = publish.Publish()
@@ -70,6 +76,9 @@ class SceneToolsUI(QtWidgets.QWidget):
         # self.init_ui_thread.signal.connect(self.init_ui)
         # self.init_ui_thread.start()
         # self.init_ui_thread.finished.connect(lambda: self.listWidgetAddItems(self.getItems()))
+
+        self.init_ui()
+        self.show_asset()
 
     def init_ui(self):
         # self.setCentralWidget(self.ui)
@@ -102,7 +111,7 @@ class SceneToolsUI(QtWidgets.QWidget):
         self.ui.key_line.addAction(QtGui.QIcon('%s/icon/search.png' % self.scriptsPath),
                                    QtWidgets.QLineEdit.LeadingPosition)
         '''主界面栏'''
-        self.ui.main_wgt = stackedWidget.MainStackedWidget(tab="Scene", db=self.ui.project_comb.currentText(),
+        self.ui.main_wgt = am_main.MainStackedWidget(tab="Scene", db=self.ui.project_comb.currentText(),
                                                            user=self.user, password=self.password,
                                                            islist=self.isList)
         self.ui.main_verticalLayout.addWidget(self.ui.main_wgt)
@@ -162,10 +171,15 @@ class SceneToolsUI(QtWidgets.QWidget):
     # =================================  设置  =======================================================
     def projectSetting(self):
         """
-        :return: projectSetting.json
+        通用设置。历史遗留：原来读 self.scriptsPath 下的 config/projectSetting.json，
+        但该文件并不存在（jsonHelper 返回 None → 'projects' 触发 TypeError）。
+        统一委托给模块级 config.projectSetting()（读 Y:/MCCTools 下的 commonSetting.json，
+        与 __init__ 里 self.host = projectSetting()['host'] 属同一数据源）。
+        :return: dict | None
         """
-        data = jsonHelper.readDictFromFile('%s/config/projectSetting.json' % self.scriptsPath)
-        return data
+        # 注意：此处裸名 projectSetting 解析到模块级 from config import projectSetting，
+        # 不会递归调用本方法（类命名空间不参与方法体的名字查找）。
+        return projectSetting()
 
     def rememberSettings(self):
         """ 记忆窗口设置 """
@@ -217,7 +231,7 @@ class SceneToolsUI(QtWidgets.QWidget):
     def get_proj(self):
         """ 根据json，设置 projects 显示 """
         # print("update_project")
-        self.ui.project_comb.addItems(self.projectSetting()['projects'])
+        self.ui.project_comb.addItems(self.projectSetting()['DataBase'])
 
     def get_typesList(self):
         project = self.ui.project_comb.currentText()

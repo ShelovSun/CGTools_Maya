@@ -2768,6 +2768,9 @@ color: rgb(120, 120, 120);</string>
         <enum>QLayout::SetMinimumSize</enum>
        </property>
        <item>
+        <widget class="QComboBox" name="logHistory_comb"/>
+       </item>
+       <item>
         <widget class="QLineEdit" name="logName_lineEdit">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">

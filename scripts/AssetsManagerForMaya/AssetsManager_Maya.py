@@ -577,7 +577,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.asset_page.layout().addWidget(self.asset)
         elif self.tabWidget.currentIndex() == 1 and self.sets_page.layout().count() == 0:
             self.scene = sceneTools.SceneToolsUI(user=self.user, password=self.password)
-            self.sets_page.layout().addWidget(self.scene.ui)
+            self.sets_page.layout().addWidget(self.scene)
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)

@@ -140,6 +140,16 @@ class ListView(QtWidgets.QListView):
         """设置数据列表"""
         self._items_list = items_list
 
+    def _noteTooltip(self, data):
+        """把资产的 asset.note (data[8]) 格式化成悬停提示：每条备注一行。
+        note 形如 "[2026-7-9 16:32]正文1$[2026-7-9 16:35]正文2"（标题自带时间戳，已可读）。
+        无备注返回 ""。
+        """
+        note = data[8] if len(data) > 8 else ""
+        if not note:
+            return ""
+        return u"\n".join(entry for entry in note.split("$") if entry)
+
     def addItem(self, data):
         """添加单个 item"""
         item = ListItemOptimized(tab=self._tab if hasattr(self, '_tab') else "Asset")
@@ -151,6 +161,9 @@ class ListView(QtWidgets.QListView):
         # 创建标准 item 用于模型
         standard_item = QtGui.QStandardItem()
         standard_item.setData(item, QtCore.Qt.UserRole)
+        tip = self._noteTooltip(data)  # 悬停显示备注
+        if tip:
+            standard_item.setToolTip(tip)
 
         self._model.appendRow(standard_item)
 
@@ -199,6 +212,9 @@ class ListView(QtWidgets.QListView):
 
             standard_item = QtGui.QStandardItem()
             standard_item.setData(item, QtCore.Qt.UserRole)
+            tip = self._noteTooltip(data)  # 悬停显示备注
+            if tip:
+                standard_item.setToolTip(tip)
             self._model.appendRow(standard_item)
 
         # 如果还有更多，使用定时器继续添加

@@ -575,8 +575,12 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
         self.playerSet()
 
-        now_time = time.strftime('%Y%m%d%H%M', time.localtime())
-        self.ui.logName_lineEdit.setText('Comment' + now_time + ':')
+        _t = time.localtime()
+        # 备注标题时间戳格式：[2026-7-9 16:32]（月/日/时不补零、分补两位），表单/tooltip 里更易读
+        self.ui.logName_lineEdit.setText(u"[%d-%d-%d %d:%02d]" % (_t.tm_year, _t.tm_mon, _t.tm_mday, _t.tm_hour, _t.tm_min))
+        # 切换历史备注下拉时，把该条备注的标题/正文回填到 logName_lineEdit / info_lineEdit
+        self._note_bodies = []  # 与 logHistory_comb 各项同序的正文缓存（回填正文用，避免依赖 itemData）
+        self.ui.logHistory_comb.currentIndexChanged[int].connect(self.onNoteHistoryChanged)
         # self.ui.splitter.setSizes([120, 500])
         # self.ui.splitter.setStretchFactor(0, False)
         # self.ui.splitter.setStretchFactor(1, True)
@@ -703,6 +707,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             if self.check_sc():
                 self.isYesEnable_sc()
                 self.renderIcon(self.ui.Preview_label_sc)
+                scProj, scName, _scCH, _scType, _scPath = self.get_publishInfo_sc()
+                self.loadNoteHistory('scene', scProj, scName)
             else:
                 self.ui.Yes_bttn.setEnabled(False)
 
@@ -860,6 +866,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             characterName = cmds.ls('*_*_AST', type='transform')[0].rsplit('_',2)[0]
             self.ui.proj_lineEdit.setText(projectName)
             self.ui.name_lineEdit.setText(characterName)
+            self.loadNoteHistory('asset', projectName, characterName)
         else:
             QtWidgets.QMessageBox.warning(self, 'Warning', u'找不到_AST或_AST不唯一,请检查!!!')
             return False
@@ -878,6 +885,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.ui.proj_lineEdit_rig.setText(projectName)
             self.ui.name_lineEdit_rig.setText(characterName)
             self.update_type(projectName, 'Assets', self.ui.publishType_comb_rig)
+            self.loadNoteHistory('asset', projectName, characterName)
         else:
             QtWidgets.QMessageBox.warning(self, 'Warning', u'找不到_AST或_AST不唯一,请检查!!!')
             return False
@@ -1047,6 +1055,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             return False
         self.ui.publishProj_comb_ac.setCurrentText(projectName)
         self.ui.name_lineEdit_ac.setText(characterName)
+        self.loadNoteHistory('asset', projectName, characterName)
 
         if not self.validateAnimLayers():
             return False
@@ -1379,7 +1388,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """
         self.ui.log_treeWgt.clear()
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_mod()
-        note = self.ui.info_lineEdit.text()
+        note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         Pub = publish.Publish()
         Pub.makePath(path)
         self.ui.log_progressBar.setVisible(True)
@@ -1409,14 +1418,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 self.logMsg(logCGTW, u"数据库状态已完成", "succeed")
             except Exception as e:
                 self.logMsg(logCGTW, u"数据库状态已完成失败：%s" % e, "failed")
-        # ''' ========================发布note================================================= '''
-        # if self.ui.info_lineEdit.text() != "":
-        #     try:
-        #         self.createNoteForCGT('asset', projectName, characterName)
-        #         self.logMsg(logCGTW, u"备注已发布", "succeed")
-        #     except Exception as e:
-        #         self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
-        # self.ui.log_progressBar.setValue(15)
+        ''' ========================发布note================================================= '''
+        if self.ui.info_lineEdit.text() != "":
+            try:
+                self.createNoteForSQL('asset', projectName, characterName)
+                self.logMsg(logCGTW, u"备注已发布", "succeed")
+            except Exception as e:
+                self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
+        self.ui.log_progressBar.setValue(15)
         ''' ============================ 清理文件 =============================================== '''
         try:
             self.modClean()
@@ -1484,7 +1493,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """
         print("_rigPublish")
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_rig()
-        note = self.ui.info_lineEdit.text()
+        note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         Pub = publish.Publish()
         self._log = "log:"
         self.ui.log_treeWgt.clear()
@@ -1514,14 +1523,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 self.logMsg(logCGTW, u"数据库里已通过", "succeed")
             except Exception as e:
                 self.logMsg(logCGTW, u"数据库里通过失败：%s" % e, "failed")
-        # ''' ================ 发布note ================================================= '''
-        # if self.ui.info_lineEdit.text() != "":
-        #     try:
-        #         self.createNoteForCGT('asset', projectName, characterName)
-        #         self.logMsg(logCGTW, u"备注已发布", "succeed")
-        #     except Exception as e:
-        #         self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
-        # self.ui.log_progressBar.setValue(15)
+        ''' ================ 发布note ================================================= '''
+        if self.ui.info_lineEdit.text() != "":
+            try:
+                self.createNoteForSQL('asset', projectName, characterName)
+                self.logMsg(logCGTW, u"备注已发布", "succeed")
+            except Exception as e:
+                self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
+        self.ui.log_progressBar.setValue(15)
         ''' =============== 不存在icon则拍屏icon ========================================= '''
         if self.ui.icon_cBox_rig.isChecked():
             try:
@@ -1678,7 +1687,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.ui.log_treeWgt.clear()
         self.ui.log_progressBar.setVisible(True)
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_sc()
-        note = self.ui.info_lineEdit.text()
+        note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         ''' ====================== 检查 =================================================== '''
         if len(cmds.ls('Terrain')) != 1:
             cmds.warning(u'Can not find Terrain or More than two Terrain !')
@@ -1704,14 +1713,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                     self.logMsg(logCGTW, u"数据库上通过失败", "failed")
             except Exception as e:
                 self.logMsg(logCGTW, u"数据库上通过失败：%s" % e, "failed")
-        # ''' ================ 发布note ================================================= '''
-        # if self.ui.info_lineEdit.text() != "":
-        #     try:
-        #         self.createNoteForCGT('map', projectName, characterName)
-        #         self.logMsg(logCGTW, u"备注已发布", "succeed")
-        #     except Exception as e:
-        #         self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
-        # self.ui.log_progressBar.setValue(15)
+        ''' ================ 发布note ================================================= '''
+        if self.ui.info_lineEdit.text() != "":
+            try:
+                self.createNoteForSQL('scene', projectName, assemblies)
+                self.logMsg(logCGTW, u"备注已发布", "succeed")
+            except Exception as e:
+                self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
+        self.ui.log_progressBar.setValue(15)
         ''' ============ 发布icon ================================================================= '''
         if self.ui.icon_cBox_sc.isChecked():
             icon_path = self.export_data(assemblies, 'MapIcon', False)
@@ -1761,7 +1770,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         print("scenePublish_GRP")
         Pub = publish.Publish()
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_sc()
-        note = self.ui.info_lineEdit.text()
+        note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         grp_name = assemblies[0].rsplit("_", 1)[0] + "_GRP"
         self._log = "log:"
         self.ui.log_treeWgt.clear()
@@ -1787,14 +1796,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                     self.logMsg(logCGTW, u"数据库上通过失败", "failed")
             except Exception as e:
                 self.logMsg(logCGTW, u"数据库上通过失败：%s" % e, "failed")
-        # ''' ================发布note================================================= '''
-        # if self.ui.info_lineEdit.text() != "":
-        #     try:
-        #         self.createNoteForCGT('scenes', projectName, characterName)
-        #         self.logMsg(logCGTW, u"备注已发布", "succeed")
-        #     except Exception as e:
-        #         self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
-        # self.ui.log_progressBar.setValue(15)
+        ''' ================发布note================================================= '''
+        if self.ui.info_lineEdit.text() != "":
+            try:
+                self.createNoteForSQL('scene', projectName, grp_name)
+                self.logMsg(logCGTW, u"备注已发布", "succeed")
+            except Exception as e:
+                self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
+        self.ui.log_progressBar.setValue(15)
         ''' ===============发布icon=============================================== '''
         if self.ui.icon_cBox_sc.isChecked():
             icon_path = self.export_data(grp_name, 'Icon', False)
@@ -1867,7 +1876,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         print("_scenePublish_Single")
         Pub = publish.Publish()
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_sc()
-        note = self.ui.info_lineEdit.text()
+        note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         self._log = "log:"
         self.ui.log_treeWgt.clear()
         self.ui.log_progressBar.setVisible(True)
@@ -1895,14 +1904,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             except Exception as e:
                 self.logMsg(logCGTW, u"数据库上通过失败：%s" % e, "failed")
 
-        # ''' ================ 发布note ================================================= '''
-        # if self.ui.info_lineEdit.text() != "":
-        #     try:
-        #         self.createNoteForCGT('scenes', projectName, characterName)
-        #         self.logMsg(logCGTW, u"备注已发布", "succeed")
-        #     except Exception as e:
-        #         self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
-        # self.ui.log_progressBar.setValue(15)
+        ''' ================ 发布note ================================================= '''
+        if self.ui.info_lineEdit.text() != "":
+            try:
+                self.createNoteForSQL('scene', projectName, assemblies)
+                self.logMsg(logCGTW, u"备注已发布", "succeed")
+            except Exception as e:
+                self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
+        self.ui.log_progressBar.setValue(15)
 
         ''' =============== 发布icon =============================================== '''
         if self.ui.icon_cBox_sc.isChecked():
@@ -2680,6 +2689,116 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 cur.close()
             if conn is not None:
                 conn.close()
+
+    def _toUnicode(self, val):
+        """ Py2 下 psycopg2 文本列可能返回 bytes(str)，统一解码为 unicode；Py3 原样返回 """
+        if isinstance(val, bytes):
+            try:
+                return val.decode('utf-8')
+            except UnicodeDecodeError:
+                return val.decode('utf-8', 'replace')
+        return val
+
+    def getNoteForSQL(self, module, db, asset_name):
+        """ 读取资产/场景的 note 字段，返回字符串（无记录或出错时返回 ""） """
+        if module == 'asset':
+            select_script = 'SELECT "asset.note" FROM public.asset WHERE "asset.name" = %s;'
+        else:
+            select_script = 'SELECT "scene.note" FROM public.scene WHERE "scene.name" = %s;'
+        conn = None
+        cur = None
+        try:
+            # 读 note 在切换 tab 时频繁触发，加短连接超时，DB 不可达时快速失败、不卡界面
+            conn = psycopg2.connect(database=db, user=self.user, password=self.password, host=self.host,
+                                    port="5432", connect_timeout=3)
+            cur = conn.cursor()
+            cur.execute(select_script, (asset_name,))
+            row = cur.fetchone()
+            if row and row[0]:
+                return self._toUnicode(row[0])
+            return ""
+        except Exception as e:
+            print(e)
+            return ""
+        finally:
+            if cur is not None:
+                cur.close()
+            if conn is not None:
+                conn.close()
+
+    def createNoteForSQL(self, module, db, asset_name):
+        """
+        发布 NOTE（替代已弃用的 createNoteForCGT）
+        标题(logName_lineEdit，形如 "[2026-7-9 16:32]") 直接拼接正文(info_lineEdit) 组成一条备注，
+        多条备注之间用 "$" 隔开，最终形如：[时间]正文1$[时间]正文2……
+        若 note 里已存在相同标题(时间戳)的备注，则覆盖那条的正文；否则追加为新的一条。
+        读取旧值与写入在同一连接内完成；出错时异常向上抛给调用方（由其记 "备注发布失败"）。
+        :param module: 'asset' -> public.asset / "asset.note"；其它 -> public.scene / "scene.note"
+        :param db: 数据库名（项目名）
+        :param asset_name: 资产/场景名
+        """
+        title = self.ui.logName_lineEdit.text()
+        body = self.ui.info_lineEdit.text()
+        new_note = u"{0}{1}".format(title, body)  # 标题已含冒号，直接接正文，不再用 $ 隔开
+        if module == 'asset':
+            select_script = 'SELECT "asset.note" FROM public.asset WHERE "asset.name" = %s;'
+            update_script = 'UPDATE public.asset SET "asset.note" = %s WHERE "asset.name" = %s;'
+        else:
+            select_script = 'SELECT "scene.note" FROM public.scene WHERE "scene.name" = %s;'
+            update_script = 'UPDATE public.scene SET "scene.note" = %s WHERE "scene.name" = %s;'
+        conn = None
+        cur = None
+        try:
+            conn = psycopg2.connect(database=db, user=self.user, password=self.password, host=self.host, port="5432")
+            cur = conn.cursor()
+            cur.execute(select_script, (asset_name,))
+            row = cur.fetchone()
+            old_note = self._toUnicode(row[0]) if (row and row[0]) else ""
+            entries = old_note.split("$") if old_note else []
+            # 已存在相同标题(时间戳)的备注则覆盖其正文，否则追加为新的一条
+            for k, entry in enumerate(entries):
+                if title and entry.startswith(title):
+                    entries[k] = new_note
+                    break
+            else:
+                entries.append(new_note)
+            note = u"$".join(entries)
+            cur.execute(update_script, (note, asset_name))
+            conn.commit()
+        finally:
+            if cur is not None:
+                cur.close()
+            if conn is not None:
+                conn.close()
+
+    def loadNoteHistory(self, module, db, asset_name):
+        """
+        读取资产/场景的 note，先按 "$" 切出每条备注，再在每条里按第一个 "]" 切分标题与正文：
+        标题（含右括号，如 "[2026-7-9 16:32]"）列入 logHistory_comb，正文按同序缓存进
+        self._note_bodies（回填时用索引取，避免依赖 itemData）。不符合 "[...]" 格式的段忽略。
+        DB 不通/无记录时下拉框清空、不报错。
+        """
+        self._note_bodies = []
+        self.ui.logHistory_comb.blockSignals(True)  # 填充期间屏蔽信号，避免误触发回填覆盖当前输入
+        try:
+            self.ui.logHistory_comb.clear()
+            note = self.getNoteForSQL(module, db, asset_name)
+            if note:
+                for entry in note.split("$"):
+                    if entry.startswith("[") and "]" in entry:
+                        idx = entry.find("]")
+                        self.ui.logHistory_comb.addItem(entry[:idx + 1])
+                        self._note_bodies.append(entry[idx + 1:])
+            self.ui.logHistory_comb.setCurrentIndex(-1)  # 默认不选中，用户选任一条都能触发回填
+        finally:
+            self.ui.logHistory_comb.blockSignals(False)
+
+    def onNoteHistoryChanged(self, index):
+        """ 切换历史备注下拉时，把该条备注的标题(含括号)/正文回填到 logName_lineEdit / info_lineEdit """
+        if index < 0 or index >= len(self._note_bodies):
+            return
+        self.ui.logName_lineEdit.setText(self.ui.logHistory_comb.itemText(index))
+        self.ui.info_lineEdit.setText(self._note_bodies[index])
 
     # def approvedForCGT(self, module, proj_name, assets_name):
     #     """

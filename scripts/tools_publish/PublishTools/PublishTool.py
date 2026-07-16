@@ -20,7 +20,7 @@ from PySide2 import QtUiTools
 from PySide2 import QtWidgets
 from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 from shiboken2 import wrapInstance
-from utils import jsonHelper, publish, sequenceplayer, pose, animation
+from utils import jsonHelper, publish, sequenceplayer, pose, animation, sm_notify
 from config import projectSetting, SMConfig
 from widgets import imagesequence
 
@@ -1382,6 +1382,13 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         elif tab == 3:
             self._actionsPublish()
 
+    def _notify_shotmanager(self, projectName, assetName, path):
+        """ 发布成功后, 向独立版 ShotManager 发一条"资产提交审核"广播(后台线程, 静默失败)。 """
+        try:
+            sm_notify.notify_asset_published(self.user, projectName, assetName, path)
+        except Exception as e:
+            print("[PublishTool] 通知 ShotManager 失败(已忽略):", e)
+
     def _modPublish(self):
         """
         发布模型
@@ -1485,6 +1492,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.setDefaultButton(QtWidgets.QMessageBox.Cancel)
         msg.setDetailedText(self._log)
         msg.exec_()
+        self._notify_shotmanager(projectName, characterName, path)
         self.ui.log_progressBar.setVisible(False)
 
     def _rigPublish(self):
@@ -1665,6 +1673,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.setDefaultButton(QtWidgets.QMessageBox.Cancel)
         msg.setDetailedText(self._log)
         msg.exec_()
+        self._notify_shotmanager(projectName, characterName, path)
         self.ui.log_progressBar.setVisible(False)
 
     def _scenePublish(self):
@@ -1761,6 +1770,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.setDefaultButton(QtWidgets.QMessageBox.Cancel)
         msg.setDetailedText(self._log)
         msg.exec_()
+        self._notify_shotmanager(projectName, characterName, path)
         self.ui.log_progressBar.setVisible(False)
 
     def _scenePublish_GRP(self, assemblies):
@@ -1867,6 +1877,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.setDefaultButton(QtWidgets.QMessageBox.Cancel)
         msg.setDetailedText(self._log)
         msg.exec_()
+        self._notify_shotmanager(projectName, grp_name, path)
         self.ui.log_progressBar.setVisible(False)
 
     def _scenePublish_Single(self, assemblies):
@@ -1969,6 +1980,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.setDefaultButton(QtWidgets.QMessageBox.Cancel)
         msg.setDetailedText(self._log)
         msg.exec_()
+        self._notify_shotmanager(projectName, characterName, path)
         self.ui.log_progressBar.setVisible(False)
 
     def _actionsPublish(self):

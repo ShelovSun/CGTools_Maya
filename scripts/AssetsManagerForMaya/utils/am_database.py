@@ -154,15 +154,11 @@ class AssetDatabaseManager(QtCore.QObject):
 
     def queryAssets(self, db, asset_type=None, keywords=None):
         """
-        查询资产
+        查询资产（public."asset"）
         :param db: 数据库名
         :param asset_type: 资产类型
         :param keywords: 关键词列表
         """
-        # 取消之前的查询
-        self.cancelQuery()
-
-        # 构建查询语句
         query = '''
             SELECT "asset.date", "asset.name", "asset.zh_name", "asset.mod_artist",
                    "asset.mod_status", "asset.rig_artist", "asset.rig_status",
@@ -170,34 +166,81 @@ class AssetDatabaseManager(QtCore.QObject):
             FROM public."asset"
             WHERE TRUE
         '''
-
         params = []
-
         if asset_type:
             query += ' AND "asset.type" = %s'
             params.append(asset_type)
+        query += self._keyword_clause("asset", keywords, params)
+        query += ' ORDER BY "asset.date" DESC'
+        self._run_query(db, query, params)
 
+    def queryScenes(self, db, scene_type=None, keywords=None):
+        """
+        查询场景（public."scene"）。为与 asset 保持同构 9 列，scene 无独立 rig 列，
+        故 artist 同时填第 3/5 列、status 同时填第 4/6 列（与 sceneTools.get_database 一致）。
+        :param db: 数据库名
+        :param scene_type: 场景类型
+        :param keywords: 关键词列表
+        """
+        query = '''
+            SELECT "scene.date", "scene.name", "scene.zh_name", "scene.artist",
+                   "scene.status", "scene.artist", "scene.status",
+                   "scene.icon", "scene.note"
+            FROM public."scene"
+            WHERE TRUE
+        '''
+        params = []
+        if scene_type:
+            query += ' AND "scene.type" = %s'
+            params.append(scene_type)
+        query += self._keyword_clause("scene", keywords, params)
+        query += ' ORDER BY "scene.date" DESC'
+        self._run_query(db, query, params)
+
+    def queryAll(self, db, keywords=None):
+        """
+        "全部目录"：横跨 asset + scene 两表 UNION ALL，各取同 9 列（别名 c0..c8）。
+        只按名称关键词过滤，不套用表专属的高级筛选（两表字段名不同）。
+        """
+        params = []
+        asset_kw = self._keyword_clause("asset", keywords, params)
+        scene_kw = self._keyword_clause("scene", keywords, params)
+        query = '''
+            SELECT * FROM (
+              SELECT "asset.date" AS c0, "asset.name" AS c1, "asset.zh_name" AS c2, "asset.mod_artist" AS c3,
+                     "asset.mod_status" AS c4, "asset.rig_artist" AS c5, "asset.rig_status" AS c6,
+                     "asset.icon" AS c7, "asset.note" AS c8
+              FROM public."asset" WHERE TRUE {0}
+              UNION ALL
+              SELECT "scene.date", "scene.name", "scene.zh_name", "scene.artist",
+                     "scene.status", "scene.artist", "scene.status", "scene.icon", "scene.note"
+              FROM public."scene" WHERE TRUE {1}
+            ) AS combined
+            ORDER BY c0 DESC
+        '''.format(asset_kw, scene_kw)
+        self._run_query(db, query, params)
+
+    @staticmethod
+    def _keyword_clause(prefix, keywords, params):
+        """按 name/zh_name 关键词拼一段以 AND 开头的参数化 SQL（无关键词返回空串）。
+        会把两个 ILIKE 参数追加进 params（就地修改），保证占位符与参数顺序一致。"""
         if keywords and keywords[0]:
             keyword = keywords[0]
-            query += ''' AND (
-                "asset.name" ILIKE %s OR
-                "asset.zh_name" ILIKE %s
-            )'''
             params.extend([f'%{keyword}%', f'%{keyword}%'])
+            return ' AND ("{0}.name" ILIKE %s OR "{0}.zh_name" ILIKE %s)'.format(prefix)
+        return ""
 
-        query += ' ORDER BY "asset.date" DESC'
-
-        # 创建查询线程
+    def _run_query(self, db, query, params):
+        """取消上一次查询 -> 建线程 -> 连信号 -> start（queryAssets/Scenes/All 共用）。"""
+        self.cancelQuery()
         self._current_thread = DatabaseQueryThread(
             db, self._user, self._password, self._host, self._port
         )
-
         self._current_thread.setQuery(query, params if params else None)
         self._current_thread.dataReady.connect(self.assetsReady.emit)
         self._current_thread.rowReady.connect(self.assetRowReady.emit)
         self._current_thread.errorOccurred.connect(self.queryError.emit)
         self._current_thread.queryFinished.connect(self.queryFinished.emit)
-
         self._current_thread.start()
 
     def cancelQuery(self):

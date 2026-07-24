@@ -6,7 +6,6 @@
 import maya.OpenMayaUI as omui
 import maya.cmds as cmds
 import os
-import uuid
 import json
 from config import projectSetting, sm_Temp, am_Temp, SMConfig
 
@@ -18,8 +17,9 @@ from my_mutils.scriptjob import ScriptJob
 from my_vendor.Qt import QtCore
 from my_vendor.Qt import QtGui
 from my_vendor.Qt import QtWidgets
+import shiboken2
 from shiboken2 import wrapInstance
-from sources import assetTools_optimized as assetTools, sceneTools  #, actionTools, ShotsManager_Maya, rigTools, modTools#, xgenTools#, list_items
+from sources import assetTools_optimized as assetTools  #, sceneTools, actionTools, ShotsManager_Maya, rigTools, modTools#, xgenTools#, list_items（scene 已并入 asset 资产库，Scene tab 移除）
 from utils import jsonHelper
 
 
@@ -27,6 +27,11 @@ def maya_main_window():
     main_window_ptr = omui.MQtUtil.mainWindow()
     return wrapInstance(int(main_window_ptr), QtWidgets.QMainWindow)
 
+
+# 固定的控件名：稳定名是 workspaceControl 跨会话持久化（记住停靠）的前提。
+# 复用同一实例后同一时刻只有一个窗口，无需再用 uuid 防重名。
+OBJECT_NAME = 'assetsManagerMainWindow'
+WORKSPACE_CONTROL = OBJECT_NAME + 'WorkspaceControl'  # Maya 自动生成的 workspaceControl 名
 
 _mayaCloseScriptJob = None
 win = None  # 当前活动的窗口实例，供 mayaClosedEvent 在 Maya 退出时保存设置
@@ -85,10 +90,11 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     def __init__(self, parent=maya_main_window()):
         super(AssetsManagerUI, self).__init__(parent)
 
+        self._isLoaded = False  # 首次 showEvent 恢复几何用（仿 StudioLibrary）
         self.mayaMainWindow = maya_main_window()
         self.mayaMainWindow.setAcceptDrops(True)
 
-        self.setObjectName('assetsManager_{}'.format(uuid.uuid4()))
+        self.setObjectName(OBJECT_NAME)  # 固定名，供 workspaceControl 跨会话持久化
 
         self.setWindowTitle('Asset Manager ' + self.VERSION)
         self.setWindowIcon(QtGui.QIcon('%s/icon/blank_ch.png' % self.scriptsPath))
@@ -125,18 +131,10 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.setMinimumSize(QtCore.QSize(0, 0))
         self.setMaximumSize(QtCore.QSize(16777215, 16777215))  # QWIDGETSIZE_MAX
         '''风格外观'''
-        pos, size, tab = self.readSettings()
-        # print(pos, size, tab)
-        if pos is not None and size is not None:
-            self.resize(size)
-            self.move(pos)
-            win_w, win_h = size.width(), size.height()
-        else:
-            self.resize(950, 600)
-            self.move(2000, 120)
-            win_w, win_h = 950, 600
-        # 浮动模式下，承载窗口(workspaceControl 浮动面板)也要跟随主界面尺寸放大回来
-        self._resizeFloatingWindow(win_w, win_h)
+        # 默认尺寸；已保存的几何在 show() 之后由 _restoreGeometry() 恢复
+        # （此处 workspaceControl 尚未创建，move/resize 会被随后的 show 覆盖丢失）。
+        self.resize(950, 600)
+        _, _, tab = self.readSettings()
 
         if tab is not None:
             self.tabWidget.setCurrentIndex(tab)
@@ -229,55 +227,6 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         gridLayout_4.setSpacing(0)
         self.tabWidget.addTab(self.asset_page, u"Asset")
 
-        # sets_page
-        self.sets_page = QtWidgets.QWidget()
-        gridLayout_9 = QtWidgets.QGridLayout(self.sets_page)
-        gridLayout_9.setContentsMargins(2, 3, 2, 0)
-        gridLayout_9.setSpacing(0)
-        self.tabWidget.addTab(self.sets_page, u"Scene")
-
-        # action_page
-        self.action_page = QtWidgets.QWidget()
-        gridLayout_13 = QtWidgets.QGridLayout(self.action_page)
-        gridLayout_13.setContentsMargins(2, 3, 2, 0)
-        gridLayout_13.setSpacing(0)
-        self.tabWidget.addTab(self.action_page, u"Action")
-
-        # idea_page
-        self.idea_page = QtWidgets.QWidget()
-        gridLayout = QtWidgets.QGridLayout(self.idea_page)
-        gridLayout.setContentsMargins(2, 3, 2, 0)
-        gridLayout.setSpacing(0)
-        self.tabWidget.addTab(self.idea_page, u"Shot")
-
-        # mod_page
-        self.mod_page = QtWidgets.QWidget()
-        gridLayout_5 = QtWidgets.QGridLayout(self.mod_page)
-        gridLayout_5.setContentsMargins(2, 3, 2, 0)
-        gridLayout_5.setSpacing(0)
-        self.tabWidget.addTab(self.mod_page, u"Model")
-
-        # rig_page
-        self.rig_page = QtWidgets.QWidget()
-        gridLayout_6 = QtWidgets.QGridLayout(self.rig_page)
-        gridLayout_6.setContentsMargins(2, 3, 2, 0)
-        gridLayout_6.setSpacing(0)
-        self.tabWidget.addTab(self.rig_page, u"Rig")
-
-        # xgen_page
-        self.xgen_page = QtWidgets.QWidget()
-        gridLayout_8 = QtWidgets.QGridLayout(self.xgen_page)
-        gridLayout_8.setContentsMargins(2, 3, 2, 0)
-        gridLayout_8.setSpacing(0)
-        self.tabWidget.addTab(self.xgen_page, u"XGen")
-
-        # sim_page
-        self.sim_page = QtWidgets.QWidget()
-        gridLayout_7 = QtWidgets.QGridLayout(self.sim_page)
-        gridLayout_7.setContentsMargins(2, 3, 2, 0)
-        gridLayout_7.setSpacing(0)
-        self.tabWidget.addTab(self.sim_page, u"Sim")
-
         gridLayout_2.addWidget(self.tabWidget, 0, 0, 1, 1)
         gridLayout_10.addLayout(gridLayout_2, 0, 0, 1, 1)
         self.setCentralWidget(centralwidget)
@@ -286,9 +235,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """mini 搜索条外观界面（原 ui/AssetsManager_mini.ui，改为代码构建）"""
         self.setupMiniUi()
         '''风格外观'''
-        pos, size, tab = self.readSettings()
-        if pos is not None:
-            self.move(pos)
+        # 位置在 show() 之后由 _restoreGeometry() 恢复（此处 workspaceControl 尚未创建）
         self.setFixedHeight(41)
         self.setMinimumWidth(200)
         self.resize(350, 41)
@@ -415,16 +362,66 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         except Exception as e:
             print(e)
 
+    def _restoreGeometry(self):
+        """workspaceControl 创建后恢复窗口几何（必须在 show() 之后调用）。
+        停靠状态由 workspaceControl 自行管理，此处不恢复。"""
+        if not self.isFloating():
+            return
+        pos, size, _ = self.readSettings()
+        win = self.window()
+        if win is None:
+            return
+        # 尺寸（mini 高度固定，不恢复尺寸）
+        if not self.isMini and size is not None:
+            try:
+                self._resizeFloatingWindow(size.width(), size.height())
+            except Exception as e:
+                print(e)
+        # 位置：带屏幕越界防御，避免窗口跑到不可见区域
+        if pos is not None:
+            try:
+                vg = QtWidgets.QApplication.desktop().geometry()  # 多屏联合矩形
+                x, y = pos.x(), pos.y()
+                if vg.left() <= x <= vg.right() - 50 and vg.top() <= y <= vg.bottom() - 30:
+                    win.move(pos)
+            except Exception as e:
+                print(e)
+
     def rememberSettings(self):
-        """ 写入QSettings数据 """
+        """ 写入QSettings数据（含停靠/浮动状态，供跨重启恢复） """
         settings = QtCore.QSettings('AssetsManager', 'AssetsManagerSettings')
-        settings.setValue('pos', self.pos())
-        if self.isMini:
-            pass
+        floating = self.isFloating()
+        settings.setValue('floating', floating)
+        if floating:
+            # 浮动时保存几何：停靠时 window()==self、pos 是内嵌控件坐标(≈0,0)，无意义
+            win = self.window()
+            settings.setValue('pos', win.pos())
+            if not self.isMini:
+                settings.setValue('size', win.size())
         else:
-            settings.setValue('size', self.size())
+            # 停靠时尽力记住停靠边（Maya 无查询命令，用 Qt dockWidgetArea 兜底）
+            area = self._currentDockArea()
+            if area:
+                settings.setValue('dockArea', area)
+        if not self.isMini:
             settings.setValue('tab', self.tabWidget.currentIndex())
         settings.setValue('isMini', self.isMini)
+
+    def _currentDockArea(self):
+        """尽力返回当前停靠边 'left'/'right'/'top'/'bottom'，查不到返回 None。
+        Maya workspaceControl 无直接查询 dock 区域的命令，用 Qt 的 dockWidgetArea 兜底。"""
+        try:
+            control = self.parent()  # workspaceControl 的 QWidget
+            if control is None:
+                return None
+            return {
+                QtCore.Qt.LeftDockWidgetArea: 'left',
+                QtCore.Qt.RightDockWidgetArea: 'right',
+                QtCore.Qt.TopDockWidgetArea: 'top',
+                QtCore.Qt.BottomDockWidgetArea: 'bottom',
+            }.get(self.mayaMainWindow.dockWidgetArea(control))
+        except Exception:
+            return None
 
     def readSettings(self):
         """ 读取QSettings数据 """
@@ -575,9 +572,6 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.asset = assetTools.AssetToolsUI(user=self.user, password=self.password)
             # AssetToolsUI 现已是控件本身（原 self.asset.ui 改为代码构建后直接挂在 self 上）
             self.asset_page.layout().addWidget(self.asset)
-        elif self.tabWidget.currentIndex() == 1 and self.sets_page.layout().count() == 0:
-            self.scene = sceneTools.SceneToolsUI(user=self.user, password=self.password)
-            self.sets_page.layout().addWidget(self.scene)
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
@@ -773,6 +767,15 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 cmds.warning("cmds.workspaceControl is not supported!")
         return True
 
+    def window(self):
+        """停靠时返回自身，浮动时返回 workspaceControl 顶层宿主窗口。
+        用于保存/恢复正确的窗口位置与尺寸（仿 StudioLibrary.MayaLibraryWindow）。
+        dockable 模式下 self 只是被嵌进 workspaceControl 的内嵌控件，
+        self.pos()/self.move() 作用在内嵌控件上，不是真正的浮动窗口位置。"""
+        if self.isDocked():
+            return self
+        return QtWidgets.QMainWindow.window(self)
+
     def floatingChanged(self, isFloating):
         print("floatingChanged")
         print(self.workspaceControlName())
@@ -798,47 +801,65 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     def destroy(self):
         print("destroy")
 
+    def dockCloseEventTriggered(self):
+        """workspaceControl(停靠面板)关闭时由 MayaQWidgetDockableMixin 触发。
+        dockable 下 QMainWindow.closeEvent 不可靠，用这里保存设置（浮动几何）。"""
+        try:
+            self.rememberSettings()
+        except Exception as e:
+            print(e)
+
+    def showEvent(self, event):
+        """首次显示时（此时 workspaceControl 已就绪）恢复浮动几何，仿 StudioLibrary。
+        停靠场景由 workspaceControl 自行恢复，_restoreGeometry 内已按 isFloating 守卫。"""
+        super(AssetsManagerUI, self).showEvent(event)
+        if not getattr(self, '_isLoaded', False):
+            self._isLoaded = True
+            self._restoreGeometry()
+
     def show(self, **kwargs):
         """
         以可停靠窗口方式显示（仿 StudioLibrary.MayaLibraryWindow.show）。
         默认 dockable=True，这样才会创建 workspaceControl、窗口才能停靠；
         传 dockable=False 可显示为浮动独立窗口。
 
-        关于 closeEvent：dockable=True 时窗口被挂到 workspaceControl 下，
-        关闭走的是 workspaceControl，QMainWindow.closeEvent 不一定触发，
-        因此保存设置改由 Maya 退出事件 mayaClosedEvent (scriptJob) 负责。
+        关于关闭保存：dockable=True 时窗口挂在 workspaceControl 下，
+        QMainWindow.closeEvent 不一定触发，保存改由 dockCloseEventTriggered
+        与 Maya 退出事件 mayaClosedEvent 负责；几何恢复在首次 showEvent 里执行。
         """
-        dockable = kwargs.get('dockable', True)
-        MayaQWidgetDockableMixin.show(self, dockable=dockable)
+        kwargs.setdefault('dockable', True)
+        MayaQWidgetDockableMixin.show(self, **kwargs)
         self.raise_()
 
 
 def showWindow():
+    """
+    显示 AssetsManager：复用同一实例、不销毁 workspaceControl，让 Maya 原生
+    记住窗口状态（对齐 StudioLibrary）。
+
+    - 同一 Maya 会话内关掉再开：保持上次的位置/大小/停靠（复用实例 + 恢复已有控件）。
+    - 跨重启 Maya：停靠布局不恢复（不使用 uiScript，避免它与 QMainWindow 配合
+      在浮动切换时把内嵌内容 reparent 到画不出来的白屏状态）；浮动位置/大小由
+      QSettings 在首次 showEvent 恢复。
+    """
     global win
 
-    # 先记下上一个实例的 workspaceControl 名字（窗口设了 WA_DeleteOnClose，
-    # close 之后 C++ 对象可能已销毁，再去查名字会抛 RuntimeError，所以先取）。
-    old_wsc = None
-    try:
-        old_wsc = win.workspaceControlName()
-    except Exception:
-        pass
+    # 复用实例：仅当不存在或底层 C++ 对象已销毁时才新建（否则保持原窗口状态）
+    need_new = win is None or not shiboken2.isValid(win)
+    if need_new:
+        # 注册 Maya 退出事件，用于退出时保存设置（closeEvent 不可靠）
+        enableMayaClosedEvent()
+        # 若存在上一次遗留的 workspaceControl（如重载模块后 win 丢失但控件仍在），
+        # 先清掉，避免新实例游离、旧空控件残留。
+        try:
+            if cmds.workspaceControl(WORKSPACE_CONTROL, q=True, exists=True):
+                cmds.deleteUI(WORKSPACE_CONTROL)
+        except Exception:
+            pass
+        win = AssetsManagerUI()
 
-    try:
-        win.close()
-    except Exception:
-        pass
-
-    # 清理残留的 workspaceControl，避免每次重开都堆积一个空的停靠控件。
-    try:
-        if old_wsc and cmds.workspaceControl(old_wsc, q=True, exists=True):
-            cmds.deleteUI(old_wsc)
-    except Exception:
-        pass
-
-    # 注册 Maya 退出事件，停靠模式下用它来保存设置（closeEvent 不可靠）。
-    enableMayaClosedEvent()
-
-    win = AssetsManagerUI()
-    win.setAttribute(QtCore.Qt.WA_DeleteOnClose)
-    win.show(dockable=True)
+    if (not need_new) and cmds.workspaceControl(WORKSPACE_CONTROL, q=True, exists=True):
+        # win 仍有效且控件还在：同一会话内重开，恢复显示并保持原停靠/位置/大小
+        cmds.workspaceControl(WORKSPACE_CONTROL, e=True, restore=True)
+    else:
+        win.show(dockable=True)

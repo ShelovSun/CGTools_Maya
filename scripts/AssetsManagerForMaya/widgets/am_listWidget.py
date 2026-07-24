@@ -252,7 +252,7 @@ class MainListWidget(QtWidgets.QListWidget):
         if not add:
             self.clear()
         for i in self._itemsList:
-            _item = am_listItem.ListItem(tab=self._tab)
+            _item = am_listItem.ListItem()  # ListItem 构造不接收 tab；旧代码 self._tab 已注释删除
             if i[1].lower().find(keyWords.lower()) != -1 or (i[2] and i[2].find(keyWords) != -1):
                 _item.setItemData(i)
                 _item.setItemsWidget(self)

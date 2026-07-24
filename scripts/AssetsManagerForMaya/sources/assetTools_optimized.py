@@ -19,6 +19,10 @@ from utils import jsonHelper, publish, messageBox
 from utils.am_database import AssetDatabaseManager
 from widgets import am_main_optimized, faverWidget, previewWidget, previewGLWidget, am_pixmap
 
+# 左侧目录树里“全部目录”顶层节点的标记(选中它=横跨 asset+scene 搜索全部类型)。
+# 与独立版 am_main.py 的 ALL_ROLE 同一做法(int(Qt.UserRole)+5)。
+ALL_ROLE = int(QtCore.Qt.UserRole) + 5
+
 
 def maya_main_window():
     """获取 Maya 主窗口"""
@@ -164,14 +168,14 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.type_splitter.setOrientation(QtCore.Qt.Vertical)
         self.type_splitter.setHandleWidth(3)
 
-        self.type_listWgt = QtWidgets.QListWidget()
-        _set_size_policy(self.type_listWgt, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        self.type_listWgt.setMinimumSize(QtCore.QSize(50, 50))
-        self.type_listWgt.setMaximumSize(QtCore.QSize(16777215, 16777215))
-        self.type_listWgt.setAlternatingRowColors(False)
-        self.type_listWgt.setSpacing(3)
-        self.type_listWgt.setSortingEnabled(False)
-        self.type_splitter.addWidget(self.type_listWgt)
+        # 目录树：全部目录 > Assets/Scenes > 各类型（asset 与 scene 合一浏览）
+        self.type_treeWidget = QtWidgets.QTreeWidget()
+        _set_size_policy(self.type_treeWidget, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.type_treeWidget.setMinimumSize(QtCore.QSize(50, 50))
+        self.type_treeWidget.setMaximumSize(QtCore.QSize(16777215, 16777215))
+        self.type_treeWidget.header().setVisible(False)
+        self.type_treeWidget.setExpandsOnDoubleClick(True)
+        self.type_splitter.addWidget(self.type_treeWidget)
 
         self.verticalLayout.addWidget(self.type_splitter)
         self.mainWindow_splitter.addWidget(layoutWidget)
@@ -509,13 +513,13 @@ class AssetToolsUI(QtWidgets.QWidget):
 
         # 左侧边栏
         self.project_comb.currentIndexChanged.connect(self.projectChanged)
-        self.type_listWgt.itemSelectionChanged.connect(self.typeChanged)
-        self.type_listWgt.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.type_listWgt.customContextMenuRequested.connect(self.show_menu_type)
+        self.type_treeWidget.itemSelectionChanged.connect(self.typeChanged)
+        self.type_treeWidget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.type_treeWidget.customContextMenuRequested.connect(self.show_menu_type)
 
         self.Favorites_listWgt = faverWidget.FavoritesQListWiget(tab="Asset")
         self.type_splitter.addWidget(self.Favorites_listWgt)
-        self.type_splitter.setSizes([300, 500])
+        self.type_splitter.setSizes([500, 500])
         self.Favorites_listWgt.itemSelectionChanged.connect(self.faveChanged)
 
         # 上侧工具栏
@@ -561,7 +565,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.ui_main_wgt.setItemSize(self.itemSize_Slider.value())
 
         # 设置分割器
-        self.mainWindow_splitter.setSizes([120, 500, 300])
+        self.mainWindow_splitter.setSizes([200, 500, 300])
         self.mainWindow_splitter.setStretchFactor(0, False)
         self.mainWindow_splitter.setStretchFactor(1, True)
         self.mainWindow_splitter.setStretchFactor(2, False)
@@ -618,7 +622,9 @@ class AssetToolsUI(QtWidgets.QWidget):
         settings.setValue('isList', self.isList)
         settings.setValue('thumbSize', self.itemSize_Slider.value())
         settings.setValue('project', self.project_comb.currentIndex())
-        settings.setValue('typ', self.type_listWgt.currentRow())
+        # 树没有 row 概念，改存选中节点的 "tab|type" 文本
+        tab, _type = self.current_type()
+        settings.setValue('typ', "{0}|{1}".format(tab or "", _type or ""))
 
     def readSettings(self):
         """读取设置"""
@@ -635,7 +641,6 @@ class AssetToolsUI(QtWidgets.QWidget):
     def firstView(self):
         """首次显示"""
         self.get_project()
-        self.get_type()
 
         thumbSize, project, typ = self.readSettings()
         if thumbSize is not None:
@@ -644,39 +649,142 @@ class AssetToolsUI(QtWidgets.QWidget):
             self.project_comb.setCurrentIndex(int(project))
         else:
             self.project_comb.setCurrentIndex(0)
-        if typ is not None and typ != -1:
-            self.type_listWgt.setCurrentRow(int(typ))
-        else:
-            self.type_listWgt.setCurrentRow(0)
+
+        # 项目定好后再建树（scene 类型随项目扫盘不同），最后恢复上次选中的节点。
+        # 此处仍在 init_ui 里连接 itemSelectionChanged 之前，setCurrentItem 不会触发
+        # typeChanged；首帧加载由 __init__ 末尾的 show_asset() 负责。
+        self.get_type()
+        self._restore_tree_selection(typ)
 
     def get_project(self):
         """获取项目列表"""
         self.project_comb.addItems(projectSetting()['DataBase'])
 
     def get_type(self):
-        """获取类型列表"""
-        self.type_listWgt.clear()
-        # 注意：这里的 type 会作为 SQL 里 "asset.type" = %s 的过滤值，
-        # 必须等于数据库 asset.type 列的真实值（如 Characters/Props），
-        # 不能用 ['Assets','Scenes']（那是顶层分类，DB 里无此 type → 查到 0 条）。
-        for i in ["Characters", "Props"]:
-            item = QtWidgets.QListWidgetItem()
-            item.setText(str(i))
+        """构建左侧目录树：全部目录 > Assets/Scenes > 各类型。
+
+        类型来自磁盘扫描 {ROOT}/{db}/{Assets|Scenes} 的子目录（子目录名即 DB 里
+        asset.type / scene.type 的真实值，作为 SQL 过滤值）；Assets 扫不到时回退
+        ['Characters','Props']。默认选中项记在 self._default_tree_item。
+        """
+        self.type_treeWidget.clear()
+        db = self.currentProject()
+
+        def _folder_icon():
             icon = QtGui.QIcon()
-            pixmap = am_pixmap.Pixmap('%s/icon/folder.svg' % self.scriptsPath)
-            pixmap.setColor(QtGui.QColor("#b3b3b3"))
-            icon.addPixmap(pixmap, QtGui.QIcon.Normal, QtGui.QIcon.Off)
-            item.setIcon(icon)
-            self.type_listWgt.addItem(item)
+            pix = am_pixmap.Pixmap('%s/icon/folder.svg' % self.scriptsPath)
+            pix.setColor(QtGui.QColor("#b3b3b3"))
+            icon.addPixmap(pix, QtGui.QIcon.Normal, QtGui.QIcon.Off)
+            return icon
+
+        # 顶层“全部目录”节点（选中=横跨 asset+scene 全部类型，跑 UNION，最慢，不作默认）
+        all_item = QtWidgets.QTreeWidgetItem()
+        all_item.setText(0, u"全部目录")
+        all_item.setData(0, ALL_ROLE, True)
+        all_item.setIcon(0, _folder_icon())
+        self.type_treeWidget.addTopLevelItem(all_item)
+
+        assets_item = None
+        default_item = None
+        for tab in ["Assets", "Scenes"]:
+            tab_item = QtWidgets.QTreeWidgetItem()
+            tab_item.setText(0, tab)
+            tab_item.setIcon(0, _folder_icon())
+            all_item.addChild(tab_item)
+            if tab == "Assets":
+                assets_item = tab_item
+            for _type in self._scan_types(db, tab):
+                type_item = QtWidgets.QTreeWidgetItem()
+                type_item.setText(0, _type)
+                type_item.setIcon(0, _folder_icon())
+                tab_item.addChild(type_item)
+                if tab == "Assets" and _type == "Characters":
+                    default_item = type_item
+            tab_item.setExpanded(True)
+        all_item.setExpanded(True)
+
+        # 默认优先 Assets/Characters；退而选 Assets 首个类型 -> Assets 节点 -> 全部目录
+        if default_item is None and assets_item is not None and assets_item.childCount() > 0:
+            default_item = assets_item.child(0)
+        if default_item is None:
+            default_item = assets_item if assets_item is not None else all_item
+        self._default_tree_item = default_item
+
+    def _scan_types(self, db, tab):
+        """扫描 {ROOT}/{db}/{tab} 的子目录作为类型；Assets 扫不到时回退 Characters/Props。"""
+        folder = '{0}/{1}/{2}'.format(self.ROOT, db, tab)
+        types = []
+        if os.path.isdir(folder):
+            try:
+                types = sorted(d for d in os.listdir(folder)
+                               if os.path.isdir(os.path.join(folder, d)))
+            except OSError:
+                types = []
+        if not types and tab == "Assets":
+            types = ["Characters", "Props"]
+        return types
 
     def currentProject(self):
         """获取当前项目"""
         return str(self.project_comb.currentText())
 
+    def current_type(self):
+        """返回当前选中的检索范围 (tab, type)：
+        ("All", None)              -> 全部目录，横跨 asset+scene 全部类型
+        ("Assets"/"Scenes", None)  -> 选中某个 tab 节点，该表全部类型
+        ("Assets"/"Scenes", 类型)  -> 选中具体类型
+        (None, None)               -> 无有效选中
+        """
+        items = self.type_treeWidget.selectedItems()
+        if not items:
+            return None, None
+        item = items[0]
+        if item.data(0, ALL_ROLE):
+            return "All", None
+        parent = item.parent()
+        if parent is None:
+            return None, None
+        if parent.data(0, ALL_ROLE):        # tab 节点（全部目录的直接子节点）
+            return item.text(0), None
+        return parent.text(0), item.text(0)  # 具体类型（parent 是 tab 节点）
+
     def currentType(self):
-        """获取当前类型"""
-        items = self.type_listWgt.selectedItems()
-        return str(items[0].text()) if items else ""
+        """获取当前类型名（兼容旧调用点；选中 tab/全部目录时为空串）"""
+        return self.current_type()[1] or ""
+
+    def currentTab(self):
+        """获取当前 tab（Assets/Scenes/All）；无选中时回退 self.tab。"""
+        tab = self.current_type()[0]
+        return tab if tab else getattr(self, "tab", "Assets")
+
+    def _find_tree_item(self, tab, _type):
+        """在目录树里找 (tab, type) 对应节点；_type 为空表示 tab 节点本身。"""
+        root = self.type_treeWidget.topLevelItem(0)  # 全部目录
+        if root is None:
+            return None
+        if tab == "All":
+            return root
+        for i in range(root.childCount()):
+            tab_item = root.child(i)
+            if tab_item.text(0) != tab:
+                continue
+            if not _type:
+                return tab_item
+            for j in range(tab_item.childCount()):
+                if tab_item.child(j).text(0) == _type:
+                    return tab_item.child(j)
+        return None
+
+    def _restore_tree_selection(self, typ):
+        """按保存的 'tab|type' 文本恢复树选中；找不到回退默认节点(Assets/Characters)。"""
+        target = None
+        if typ and isinstance(typ, str) and "|" in typ:
+            tab, _type = typ.split("|", 1)
+            target = self._find_tree_item(tab, _type)
+        if target is None:
+            target = getattr(self, "_default_tree_item", None)
+        if target is not None:
+            self.type_treeWidget.setCurrentItem(target)
 
     @staticmethod
     def currentDate():
@@ -688,22 +796,28 @@ class AssetToolsUI(QtWidgets.QWidget):
         return self.ui_main_wgt.currentAsset()
 
     def projectChanged(self):
-        """项目改变"""
+        """项目改变 -> 重建目录树（scene 类型随项目扫盘不同）再刷新展示"""
+        self._asset_cache = []
+        # get_type() 已 clear 树，_restore_tree_selection 的 setCurrentItem 必触发
+        # typeChanged -> show_asset，无需在此再手动刷新。
+        self.get_type()
+        self._restore_tree_selection(None)
         self.rememberSettings()
-        self._asset_cache = []  # 清空缓存
-        self.show_asset()
 
     def typeChanged(self):
-        """类型改变"""
-        if self.type_listWgt.currentRow() != -1:
-            self.rememberSettings()
-            self.show_asset()
-            self.Favorites_listWgt.setCurrentRow(-1)
+        """类型/tab 切换 -> 刷新展示（右侧面板在 show_asset 里按 tab 同步）"""
+        tab = self.current_type()[0]
+        if tab is None:
+            return
+        self.tab = tab
+        self.rememberSettings()
+        self.show_asset()
+        self.Favorites_listWgt.setCurrentRow(-1)
 
     def faveChanged(self):
         """收藏改变"""
         if self.Favorites_listWgt.currentRow() != -1:
-            self.type_listWgt.setCurrentRow(-1)
+            self.type_treeWidget.clearSelection()
             self.ui_main_wgt.clear()
             if self.Favorites_listWgt.currentRow() == 0:
                 data = self.Favorites_listWgt.get_favor_items()
@@ -720,22 +834,28 @@ class AssetToolsUI(QtWidgets.QWidget):
     # ============ 数据查询优化 ============
 
     def show_asset(self, data=None):
-        """显示资产 - 使用新的查询方式"""
+        """显示资产/场景 - 按左侧目录选中范围 (tab, type) 分派查询"""
         self.ui_main_wgt.clear()
         self._asset_cache = []
 
         # 显示加载提示
         self.infoMsg("info", "Loading...")
 
-        # 使用优化的数据库查询
         project = self.currentProject()
-        asset_type = self.currentType()
+        tab, _type = self.current_type()
         keywords = self.get_keywords()
-
-        if not project or not asset_type:
+        if not project or tab is None:
             return
 
-        self._db_manager.queryAssets(project, asset_type, keywords)
+        self.tab = tab
+        # 右侧属性面板按 tab 同步（scene 隐藏 asset 专属面板；混排时具体行由 mainWightItemChanged 再细分）
+        self._apply_attr_panel(tab)
+        if tab == "All":
+            self._db_manager.queryAll(project, keywords)
+        elif tab == "Scenes":
+            self._db_manager.queryScenes(project, _type, keywords)
+        else:  # Assets
+            self._db_manager.queryAssets(project, _type, keywords)
 
     def _onAssetRowReady(self, row):
         """单行数据准备好 - 流式添加到列表"""
@@ -784,10 +904,12 @@ class AssetToolsUI(QtWidgets.QWidget):
             self.update_action()
 
     def getPanelsData(self):
-        """获取面板数据"""
+        """获取面板数据（路径按当前 tab 取 Assets/Scenes）"""
         __project = str(self.project_comb.currentText())
-        __type = str(self.type_listWgt.selectedItems()[0].text())
-        __path = '%s/%s/Assets/%s' % (self.ROOT, __project, __type)
+        tab, __type = self.current_type()
+        __type = __type or ""
+        folder = "Scenes" if tab == "Scenes" else "Assets"
+        __path = '%s/%s/%s/%s' % (self.ROOT, __project, folder, __type)
         return __project, __type, __path
 
     def getCurrentItemsData(self):
@@ -800,53 +922,80 @@ class AssetToolsUI(QtWidgets.QWidget):
         return __item, __fileType, __folder
 
     def mainWightItemChanged(self):
-        """主面板选择项改变"""
+        """主面板选择项改变：按选中项归属表(asset/scene)切换右侧面板与预览。"""
         currentSelected = self.ui_main_wgt.selectedItems()
         self.preview.clear()
+        if not currentSelected:
+            return
 
-        if currentSelected:
-            # 启用/禁用按钮
-            rBttn_dict = {
-                'mod': self.mod_rBttn,
-                'hi_rig': self.hiRig_rBttn,
-                'low_rig': self.lowRig_rBttn,
-                'all_rig': self.allRig_rBttn,
-                'render': self.render_rBttn,
-                'xgen': self.xgen_rBttn,
-                'AD': self.ad_rBttn,
-                'OAT': self.oat_rBttn
-            }
+        table = self._row_table_of_selected()
+        self._apply_attr_panel(table)
 
-            for btn in rBttn_dict.values():
-                btn.setEnabled(True)
+        item = currentSelected[0]
+        item_data = item.itemData()
+        if not item_data:
+            return
 
-            # 获取 item 数据
-            if isinstance(currentSelected[0], QtWidgets.QTableWidgetItem):
-                item_data = currentSelected[0].itemData()
-            else:
-                item_data = currentSelected[0].itemData()
+        # 预览标题 + 缩略图（asset/scene 用不同角标 key）
+        self.preview.setTitle(item_data[1], item_data[2])
+        if not self.isAction:
+            icon_key = "scene" if table == "Scenes" else "asset_ch"
+            self.preview.setPreviewPixmap(item_data[7], icon_key)
 
-            if item_data:
-                self.preview.setTitle(item_data[1], item_data[2])
+        if table == "Scenes":
+            # scene 右侧已隐藏 File Type/Reference（简化占位），不做文件类型存在性检查
+            self._sync_favor_tag_icon(item)
+            return
 
-                if not self.isAction:
-                    self.preview.setPreviewPixmap(item_data[7], "asset_ch")
+        # ---- asset：按文件是否存在启用/禁用文件类型单选按钮 ----
+        rBttn_dict = {
+            'mod': self.mod_rBttn, 'hi_rig': self.hiRig_rBttn,
+            'low_rig': self.lowRig_rBttn, 'all_rig': self.allRig_rBttn,
+            'render': self.render_rBttn, 'xgen': self.xgen_rBttn,
+            'AD': self.ad_rBttn, 'OAT': self.oat_rBttn
+        }
+        for btn in rBttn_dict.values():
+            btn.setEnabled(True)
+        for ty, btn in rBttn_dict.items():
+            file_path = self.detailPath().get(ty, "")
+            if file_path and not QtCore.QFileInfo(file_path).exists():
+                btn.setEnabled(False)
+        self._sync_favor_tag_icon(item)
 
-                # 检查文件是否存在
-                for ty, btn in rBttn_dict.items():
-                    file_path = self.detailPath().get(ty, "")
-                    if file_path and not QtCore.QFileInfo(file_path).exists():
-                        btn.setEnabled(False)
+    def _row_table_of_selected(self):
+        """由选中项 icon 路径(itemData[7]) 判归属表：/Scenes/->Scenes、/Assets/->Assets；
+        判不了回退当前 tab(self.tab)。用于全部目录/混排视图下区分某行属于哪张表。"""
+        try:
+            selected = self.ui_main_wgt.selectedItems()
+            data = selected[0].itemData() if selected else None
+            icon = data[7] if data and len(data) > 7 else ""
+            if "/Scenes/" in str(icon):
+                return "Scenes"
+            if "/Assets/" in str(icon):
+                return "Assets"
+        except (IndexError, AttributeError, TypeError):
+            pass
+        return getattr(self, "tab", "Assets")
 
-                # 同步收藏/标签按钮图标到当前选中项的实际状态（以本地 JSON 为准）
-                item = currentSelected[0]
-                try:
-                    favor_icon = 'star.png' if item.isFavor() else 'unStar.png'
-                    self.favor_bttn.setIcon(QtGui.QIcon('%s/icon/%s' % (self.scriptsPath, favor_icon)))
-                    tag_icon = 'tag.png' if item.isTag() else 'unTag.png'
-                    self.tag_bttn.setIcon(QtGui.QIcon('%s/icon/%s' % (self.scriptsPath, tag_icon)))
-                except Exception:
-                    pass
+    def _apply_attr_panel(self, table):
+        """asset/scene 右侧属性面板切换：scene 隐藏 asset 专属的 File Type / Reference
+        Switch 面板（简化占位），只保留预览+标题；asset 显示折叠头，内容区遵循各自的
+        展开状态（file_type_expanded / switch_expanded），不覆盖用户手动折叠。"""
+        is_asset = (table != "Scenes")
+        self.file_type_tbttn.setVisible(is_asset)
+        self.switch_tbttn.setVisible(is_asset)
+        self.file_type_frame.setVisible(is_asset and self.file_type_expanded)
+        self.switch_frame.setVisible(is_asset and self.switch_expanded)
+
+    def _sync_favor_tag_icon(self, item):
+        """同步收藏/标签按钮图标到当前选中项的实际状态（以本地 JSON 为准）。"""
+        try:
+            favor_icon = 'star.png' if item.isFavor() else 'unStar.png'
+            self.favor_bttn.setIcon(QtGui.QIcon('%s/icon/%s' % (self.scriptsPath, favor_icon)))
+            tag_icon = 'tag.png' if item.isTag() else 'unTag.png'
+            self.tag_bttn.setIcon(QtGui.QIcon('%s/icon/%s' % (self.scriptsPath, tag_icon)))
+        except Exception:
+            pass
 
     def detailPath(self):
         """获取文件路径"""
@@ -924,9 +1073,9 @@ class AssetToolsUI(QtWidgets.QWidget):
     # ============ 右键菜单 ============
 
     def show_menu_type(self, point):
-        """类型列表右键菜单"""
-        currentItem = self.type_listWgt.itemAt(point)
-        menu = QtWidgets.QMenu(self.type_listWgt)
+        """目录树右键菜单：空白处右键 -> 新建文件夹"""
+        currentItem = self.type_treeWidget.itemAt(point)
+        menu = QtWidgets.QMenu(self.type_treeWidget)
         if currentItem is None:
             addFolder_action = QtWidgets.QAction(u'新建文件夹', self)
             addFolder_action.setIcon(QtGui.QIcon("%s/icon/folderPlus.png" % self.scriptsPath))
@@ -1043,19 +1192,18 @@ class AssetToolsUI(QtWidgets.QWidget):
     # ============ 其他方法 ============
 
     def _add_folder(self):
-        """添加文件夹"""
+        """在当前 tab（Assets/Scenes）目录下新建一个类型文件夹，然后重建目录树并选中它。"""
         project = self.project_comb.currentText()
-        path = '{0}/{1}/Scenes'.format(self.ROOT, project)
+        tab = self.currentTab()
+        if tab == "All":
+            tab = "Assets"
+        path = '{0}/{1}/{2}'.format(self.ROOT, project, tab)
         res = self.Pub.create_new_folder(self, path)
         if res:
-            _item = QtWidgets.QListWidgetItem(res)
-            _pixmap = am_pixmap.Pixmap('%s/icon/folder.svg' % self.scriptsPath)
-            _pixmap.setColor(QtGui.QColor("#b3b3b3"))
-            _icon = QtGui.QIcon()
-            _icon.addPixmap(_pixmap, QtGui.QIcon.Normal, QtGui.QIcon.Off)
-            _item.setIcon(_icon)
-            self.type_listWgt.addItem(_item)
-            self.type_listWgt.setCurrentItem(_item)
+            self.get_type()
+            target = self._find_tree_item(tab, res)
+            if target is not None:
+                self.type_treeWidget.setCurrentItem(target)
 
     def captureThumbnail(self):
         """屏幕截图 -> 覆盖为当前资产的 icon -> (图标模式下)刷新该图标。
@@ -1362,7 +1510,10 @@ class AssetToolsUI(QtWidgets.QWidget):
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
         )
         if result == QtWidgets.QMessageBox.Yes:
-            self.del_asset(self.currentProject(), self.currentAsset())
+            if self._row_table_of_selected() == "Scenes":
+                self.del_scene(self.currentProject(), self.currentAsset())
+            else:
+                self.del_asset(self.currentProject(), self.currentAsset())
             self.show_asset()
 
     def del_asset(self, db, asset_name):
@@ -1391,10 +1542,13 @@ class AssetToolsUI(QtWidgets.QWidget):
                 conn.close()
 
     def add_asset_ui(self):
-        """添加资产 UI"""
+        """添加资产/场景 UI（按当前 tab 决定写 asset 还是 scene 表、建对应目录）"""
+        tab = self.currentTab()
+        if tab == "All":
+            tab = "Assets"
         Dialog = QtWidgets.QDialog(self)
         Dialog.resize(300, 195)
-        Dialog.setWindowTitle(u"Add Asset")
+        Dialog.setWindowTitle(u"Add Scene" if tab == "Scenes" else u"Add Asset")
         font = QtGui.QFont("Microsoft YaHei UI", 10)
         Dialog.setFont(font)
 
@@ -1403,10 +1557,14 @@ class AssetToolsUI(QtWidgets.QWidget):
 
         proj_comb = QtWidgets.QComboBox(Dialog)
         proj_comb.addItems(projectSetting()["DataBase"])
+        proj_comb.setCurrentText(self.currentProject())
         type_comb = QtWidgets.QComboBox(Dialog)
-        type_comb.addItems(["Characters", "Props"])
+        type_comb.addItems(self._scan_types(self.currentProject(), tab))
+        _cur_type = self.current_type()[1]
+        if _cur_type:
+            type_comb.setCurrentText(_cur_type)
         name_line = QtWidgets.QLineEdit(Dialog)
-        name_line.setPlaceholderText("asset name")
+        name_line.setPlaceholderText("name")
         zh_name_line = QtWidgets.QLineEdit(Dialog)
         zh_name_line.setPlaceholderText(u"中文名")
 
@@ -1427,10 +1585,15 @@ class AssetToolsUI(QtWidgets.QWidget):
             date = self.currentDate()
             name = name_line.text()
             zh_name = zh_name_line.text()
-            mod_artist = str(self.user)
-            asset_type = type_comb.currentText()
-            self.add_asset(db, date, name, zh_name, mod_artist, asset_type)
-            self.make_dirs(db, asset_type, name)
+            artist = str(self.user)
+            _type = type_comb.currentText()
+            if tab == "Scenes":
+                self.add_scene(db, date, name, zh_name, artist, _type)
+                self.make_scene_dirs(db, _type, name)
+            else:
+                self.add_asset(db, date, name, zh_name, artist, _type)
+                self.make_dirs(db, _type, name)
+            self.show_asset()
             Dialog.close()
 
         btnBox.accepted.connect(_add_asset)
@@ -1480,6 +1643,72 @@ class AssetToolsUI(QtWidgets.QWidget):
             folder_path = path + folder
             if not os.path.exists(folder_path):
                 os.makedirs(folder_path)
+
+    @staticmethod
+    def make_scene_dirs(db, _type, name):
+        """创建 scene 目录结构（与 sceneTools.make_dirs 一致）"""
+        path = "Y:/MCCProject/{0}/Scenes/{1}/{2}".format(db, _type, name)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        for sub in ["/Assembly", "/FBX", "/GPU", "/Icon", "/Mod",
+                    "/Original", "/Port", "/Proxy", "/Texture"]:
+            sub_path = path + sub
+            if not os.path.exists(sub_path):
+                os.makedirs(sub_path)
+
+    def add_scene(self, db, date, name, zh_name, artist, _type):
+        """新增场景到 public.scene"""
+        import psycopg2
+        icon = "Y:/MCCProject/{0}/Scenes/{1}/{2}/Icon/{2}.png".format(db, _type, name)
+        insert_script = '''
+            INSERT INTO public.scene ("scene.date", "scene.name", "scene.zh_name", "scene.artist",
+                "scene.status", "scene.icon", "scene.type")
+            VALUES ('%s'::bigint, '%s'::text, '%s'::text, '%s'::text,
+                '未开始'::text, '%s'::text, '%s'::text)
+            returning scene."scene.name";
+        ''' % (date, name, zh_name, artist, icon, _type)
+        conn = None
+        cur = None
+        try:
+            conn = psycopg2.connect(
+                database=db, user=self.user,
+                password=self.password, host=self.host, port="5432"
+            )
+            cur = conn.cursor()
+            cur.execute(insert_script)
+            conn.commit()
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, u"警告：", str(e))
+        finally:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
+
+    def del_scene(self, db, scene_name):
+        """删除场景"""
+        import psycopg2
+        delete_script = '''
+            DELETE FROM public.scene
+            WHERE "scene.name" = '%s';
+        ''' % scene_name
+        conn = None
+        cur = None
+        try:
+            conn = psycopg2.connect(
+                database=db, user=self.user,
+                password=self.password, host=self.host, port="5432"
+            )
+            cur = conn.cursor()
+            cur.execute(delete_script)
+            conn.commit()
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, u"警告：", str(e))
+        finally:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
 
     def download_asset(self):
         """下载资产"""

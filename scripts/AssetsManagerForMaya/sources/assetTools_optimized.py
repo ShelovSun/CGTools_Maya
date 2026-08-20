@@ -1504,6 +1504,7 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def delete_asset(self):
         """删除资产"""
+        print("Deleting asset...")
         result = QtWidgets.QMessageBox.warning(
             self, u"警告",
             u"删除数据表的操作是不可逆的，但服务器文件夹还在，确定要删除吗？",
@@ -1519,6 +1520,7 @@ class AssetToolsUI(QtWidgets.QWidget):
     def del_asset(self, db, asset_name):
         """删除资产"""
         import psycopg2
+        print("Deleting asset: %s from database: %s" % (asset_name, db))
         delete_script = '''
             DELETE FROM public.asset
             WHERE "asset.name" = '%s';

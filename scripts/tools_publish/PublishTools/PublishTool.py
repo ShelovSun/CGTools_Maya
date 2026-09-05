@@ -1398,6 +1398,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         Pub = publish.Publish()
         Pub.makePath(path)
+        Pub.makePath(str('%s/Action' % (path)))
         self.ui.log_progressBar.setVisible(True)
         self._log = "log:"
         self.ui.log_treeWgt.clear()
@@ -1503,6 +1504,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_rig()
         note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         Pub = publish.Publish()
+        Pub.makePath(path)
+        Pub.makePath(str('%s/Action' % (path)))
         self._log = "log:"
         self.ui.log_treeWgt.clear()
         self.ui.log_progressBar.setVisible(True)

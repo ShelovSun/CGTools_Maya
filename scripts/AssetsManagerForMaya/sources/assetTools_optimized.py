@@ -17,6 +17,7 @@ from shiboken2 import wrapInstance
 from config import projectSetting, SMConfig
 from utils import jsonHelper, publish, messageBox
 from utils.am_database import AssetDatabaseManager
+from sources import am_actionWidget
 from widgets import am_main_optimized, faverWidget, previewWidget, previewGLWidget, am_pixmap
 
 # 左侧目录树里“全部目录”顶层节点的标记(选中它=横跨 asset+scene 搜索全部类型)。
@@ -62,6 +63,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.progress = 0
         self.file_type_expanded = True
         self.switch_expanded = True
+        self.action_expanded = True
 
         self.__fileTypeFolderDict = {
             'mod': 'Mod', 'render': 'Render', 'all_rig': 'Rig',
@@ -497,6 +499,36 @@ class AssetToolsUI(QtWidgets.QWidget):
         verticalLayout_2.addWidget(self.switch_frame)
         self.Attr_down_vLayout.addLayout(verticalLayout_2)
 
+        # 动作库面板
+        verticalLayout_action = QtWidgets.QVBoxLayout()
+
+        self.action_tbttn = QtWidgets.QToolButton()
+        _set_size_policy(self.action_tbttn, QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self.action_tbttn.setMaximumSize(QtCore.QSize(16777215, 18))
+        self.action_tbttn.setFont(_font(size=9))
+        self.action_tbttn.setStyleSheet(
+            u"background-color: rgb(100, 100, 100);\ncolor: rgb(200, 200, 200);")
+        self.action_tbttn.setText(u"动作库")
+        self.action_tbttn.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.action_tbttn.setAutoRaise(True)
+        self.action_tbttn.setArrowType(QtCore.Qt.DownArrow)
+        verticalLayout_action.addWidget(self.action_tbttn)
+
+        self.action_frame = QtWidgets.QFrame()
+        _set_size_policy(self.action_frame, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.action_frame.setMinimumSize(QtCore.QSize(0, 80))
+        self.action_frame.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.action_frame.setFrameShadow(QtWidgets.QFrame.Sunken)
+        verticalLayout_action_frame = QtWidgets.QVBoxLayout(self.action_frame)
+        verticalLayout_action_frame.setSpacing(2)
+        verticalLayout_action_frame.setContentsMargins(2, 2, 2, 2)
+
+        self.action_widget = am_actionWidget.AssetActionWidget(self.action_frame)
+        verticalLayout_action_frame.addWidget(self.action_widget)
+
+        verticalLayout_action.addWidget(self.action_frame)
+        self.Attr_down_vLayout.addLayout(verticalLayout_action)
+
         self.Attr_down_vLayout.addItem(QtWidgets.QSpacerItem(
             20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
 
@@ -593,6 +625,8 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.exportFbx_bttn.clicked.connect(self.exportFbx)
         self.switch_tbttn.clicked.connect(self.switch_clicked)
         self.asset_ref_switch_bttn.clicked.connect(self.copyKey)
+        self.action_tbttn.clicked.connect(self.action_clicked)
+        self.action_widget.actionActivated.connect(self._on_action_activated)
 
     def file_type_clicked(self):
         """切换文件类型面板"""
@@ -615,6 +649,22 @@ class AssetToolsUI(QtWidgets.QWidget):
             self.switch_tbttn.setArrowType(QtCore.Qt.DownArrow)
             self.switch_frame.setVisible(True)
             self.switch_expanded = True
+
+    def action_clicked(self):
+        """切换动作库面板"""
+        if self.action_expanded:
+            self.action_tbttn.setArrowType(QtCore.Qt.RightArrow)
+            self.action_frame.setVisible(False)
+            self.action_expanded = False
+        else:
+            self.action_tbttn.setArrowType(QtCore.Qt.DownArrow)
+            self.action_frame.setVisible(True)
+            self.action_expanded = True
+
+    def _on_action_activated(self, fbx_path):
+        """动作库选中某项：有路径则把动作套用到当前绑定文件上循环播放，
+        空字符串则回到绑定文件静态预览。"""
+        self.preview.playAction(fbx_path)
 
     def rememberSettings(self):
         """保存设置"""
@@ -945,6 +995,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         if table == "Scenes":
             # scene 右侧已隐藏 File Type/Reference（简化占位），不做文件类型存在性检查
             self._sync_favor_tag_icon(item)
+            self.action_widget.clear()
             return
 
         # ---- asset：按文件是否存在启用/禁用文件类型单选按钮 ----
@@ -961,6 +1012,13 @@ class AssetToolsUI(QtWidgets.QWidget):
             if file_path and not QtCore.QFileInfo(file_path).exists():
                 btn.setEnabled(False)
         self._sync_favor_tag_icon(item)
+
+        # 更新动作库
+        if item_data and len(item_data) > 7:
+            base_path = str(item_data[7]).split("Icon")[0]
+            name = str(item_data[1]) if len(item_data) > 1 else ""
+            rig_fbx_path = "{0}/FBX/{1}.fbx".format(base_path, name)
+            self.action_widget.setAsset(rig_fbx_path)
 
     def _row_table_of_selected(self):
         """由选中项 icon 路径(itemData[7]) 判归属表：/Scenes/->Scenes、/Assets/->Assets；
@@ -984,8 +1042,10 @@ class AssetToolsUI(QtWidgets.QWidget):
         is_asset = (table != "Scenes")
         self.file_type_tbttn.setVisible(is_asset)
         self.switch_tbttn.setVisible(is_asset)
+        self.action_tbttn.setVisible(is_asset)
         self.file_type_frame.setVisible(is_asset and self.file_type_expanded)
         self.switch_frame.setVisible(is_asset and self.switch_expanded)
+        self.action_frame.setVisible(is_asset and self.action_expanded)
 
     def _sync_favor_tag_icon(self, item):
         """同步收藏/标签按钮图标到当前选中项的实际状态（以本地 JSON 为准）。"""
@@ -1504,6 +1564,7 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     def delete_asset(self):
         """删除资产"""
+        print("Deleting asset...")
         result = QtWidgets.QMessageBox.warning(
             self, u"警告",
             u"删除数据表的操作是不可逆的，但服务器文件夹还在，确定要删除吗？",
@@ -1519,6 +1580,7 @@ class AssetToolsUI(QtWidgets.QWidget):
     def del_asset(self, db, asset_name):
         """删除资产"""
         import psycopg2
+        print("Deleting asset: %s from database: %s" % (asset_name, db))
         delete_script = '''
             DELETE FROM public.asset
             WHERE "asset.name" = '%s';

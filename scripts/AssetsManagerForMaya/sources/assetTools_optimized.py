@@ -440,7 +440,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         verticalLayout_11.addWidget(self.exportFbx_bttn)
 
         verticalLayout_10.addWidget(self.file_type_frame)
-        self.Attr_down_vLayout.addLayout(verticalLayout_10)
+        self.Attr_down_vLayout.addLayout(verticalLayout_10, 0)
 
         verticalLayout_2 = QtWidgets.QVBoxLayout()
 
@@ -497,7 +497,7 @@ class AssetToolsUI(QtWidgets.QWidget):
 
         verticalLayout_5.addLayout(horizontalLayout_5)
         verticalLayout_2.addWidget(self.switch_frame)
-        self.Attr_down_vLayout.addLayout(verticalLayout_2)
+        self.Attr_down_vLayout.addLayout(verticalLayout_2, 0)
 
         # 动作库面板
         verticalLayout_action = QtWidgets.QVBoxLayout()
@@ -529,8 +529,10 @@ class AssetToolsUI(QtWidgets.QWidget):
         verticalLayout_action.addWidget(self.action_frame)
         self.Attr_down_vLayout.addLayout(verticalLayout_action)
 
-        self.Attr_down_vLayout.addItem(QtWidgets.QSpacerItem(
-            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
+        # 底部弹性占位：没有可扩展卷展栏展开时把按钮顶上去
+        self._bottom_spacer = QtWidgets.QWidget()
+        _set_size_policy(self._bottom_spacer, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+        self.Attr_down_vLayout.addWidget(self._bottom_spacer)
 
         self.attr_splitter.addWidget(layoutWidget_4)
         self.mainWindow_splitter.addWidget(self.attr_splitter)
@@ -638,6 +640,7 @@ class AssetToolsUI(QtWidgets.QWidget):
             self.file_type_tbttn.setArrowType(QtCore.Qt.DownArrow)
             self.file_type_frame.setVisible(True)
             self.file_type_expanded = True
+        self._update_bottom_spacer()
 
     def switch_clicked(self):
         """切换引用面板"""
@@ -649,6 +652,7 @@ class AssetToolsUI(QtWidgets.QWidget):
             self.switch_tbttn.setArrowType(QtCore.Qt.DownArrow)
             self.switch_frame.setVisible(True)
             self.switch_expanded = True
+        self._update_bottom_spacer()
 
     def action_clicked(self):
         """切换动作库面板"""
@@ -660,6 +664,14 @@ class AssetToolsUI(QtWidgets.QWidget):
             self.action_tbttn.setArrowType(QtCore.Qt.DownArrow)
             self.action_frame.setVisible(True)
             self.action_expanded = True
+        self._update_bottom_spacer()
+
+    def _update_bottom_spacer(self):
+        """只要有任何一个“最大扩展”卷展栏处于展开状态，就隐藏底部 spacer，
+        让内容独占剩余空间；全部收起时显示 spacer 把按钮顶上去。
+        若之后添加新的可扩展卷展栏，只需在本方法追加对应展开状态判断。"""
+        expanding_open = self.action_expanded  # 追加其他可扩展卷展栏：or self.xxx_expanded
+        self._bottom_spacer.setVisible(not expanding_open)
 
     def _on_action_activated(self, fbx_path):
         """动作库选中某项：有路径则把动作套用到当前绑定文件上循环播放，
@@ -705,6 +717,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         # typeChanged；首帧加载由 __init__ 末尾的 show_asset() 负责。
         self.get_type()
         self._restore_tree_selection(typ)
+        self._update_bottom_spacer()
 
     def get_project(self):
         """获取项目列表"""

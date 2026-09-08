@@ -12,7 +12,6 @@
 import os
 
 from PySide2 import QtCore
-from PySide2 import QtGui
 from PySide2 import QtWidgets
 
 __all__ = ["AssetActionWidget"]
@@ -25,20 +24,6 @@ class AssetActionWidget(QtWidgets.QWidget):
     """
 
     actionActivated = QtCore.Signal(str)
-
-    _LIST_QSS = (
-        "QListWidget{background-color: rgb(35,36,39); border:none; color: rgb(210,210,210);}"
-        "QListWidget::item{padding:4px 6px;}"
-        "QListWidget::item:selected{background-color: rgb(70,125,209); color: white;}"
-        "QListWidget::item:hover{background-color: rgb(55,58,64);}"
-    )
-
-    _SEARCH_QSS = (
-        "QLineEdit{background-color: rgb(45,46,49); border:1px solid rgb(60,61,64);"
-        " border-radius:3px; padding:3px 6px; color: rgb(210,210,210);"
-        " selection-background-color: rgb(70,125,209);}"
-        "QLineEdit:focus{border:1px solid rgb(70,125,209);}"
-    )
 
     def __init__(self, parent=None):
         super(AssetActionWidget, self).__init__(parent)
@@ -54,12 +39,10 @@ class AssetActionWidget(QtWidgets.QWidget):
 
         # 搜索框:按动作名过滤列表
         search_wrap = QtWidgets.QWidget(self)
-        search_wrap.setStyleSheet("background-color: rgb(29,29,29);")
         sl = QtWidgets.QHBoxLayout(search_wrap)
         sl.setContentsMargins(6, 4, 6, 4)
         sl.setSpacing(0)
         self._search = QtWidgets.QLineEdit(search_wrap)
-        self._search.setStyleSheet(self._SEARCH_QSS)
         self._search.setPlaceholderText(u"搜索动作…")
         self._search.setClearButtonEnabled(True)
         self._search.textChanged.connect(self._apply_filter)
@@ -67,7 +50,6 @@ class AssetActionWidget(QtWidgets.QWidget):
         outer.addWidget(search_wrap)
 
         self._list = QtWidgets.QListWidget(self)
-        self._list.setStyleSheet(self._LIST_QSS)
         self._list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         self._list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self._list.itemClicked.connect(self._on_item_clicked)
@@ -100,7 +82,6 @@ class AssetActionWidget(QtWidgets.QWidget):
         # 顶部:回到绑定文件静态预览
         top = QtWidgets.QListWidgetItem(u"资产预览")
         top.setData(QtCore.Qt.UserRole, "")
-        top.setForeground(QtGui.QColor(170, 200, 255))
         self._list.addItem(top)
 
         if not action_dir or not os.path.isdir(action_dir):
@@ -160,7 +141,6 @@ class AssetActionWidget(QtWidgets.QWidget):
     def _add_hint(self, text):
         it = QtWidgets.QListWidgetItem(text)
         it.setFlags(QtCore.Qt.NoItemFlags)
-        it.setForeground(QtGui.QColor(130, 130, 130))
         self._list.addItem(it)
 
     def _on_item_clicked(self, item):

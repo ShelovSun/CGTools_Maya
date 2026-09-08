@@ -58,5 +58,6 @@
     // 关联 .mel 文件
     "files.associations": {
         "*.mel": "mel"
-    }
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:system"
 }

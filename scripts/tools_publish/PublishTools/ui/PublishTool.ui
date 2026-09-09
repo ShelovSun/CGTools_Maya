@@ -60,7 +60,7 @@ color: rgb(156, 156, 156);</string>
     </widget>
    </item>
    <item row="1" column="0">
-    <layout class="QHBoxLayout" name="horizontalLayout_3">
+    <layout class="QHBoxLayout" name="main_hlayout">
      <property name="spacing">
       <number>5</number>
      </property>
@@ -70,7 +70,6 @@ color: rgb(156, 156, 156);</string>
         <font>
          <family>Microsoft YaHei UI</family>
          <pointsize>10</pointsize>
-         <weight>50</weight>
          <bold>false</bold>
         </font>
        </property>
@@ -82,7 +81,6 @@ color: rgb(156, 156, 156);</string>
          <font>
           <family>Microsoft YaHei UI</family>
           <pointsize>9</pointsize>
-          <weight>50</weight>
           <bold>false</bold>
          </font>
         </property>
@@ -111,10 +109,10 @@ color: rgb(156, 156, 156);</string>
             <string notr="true">background-color: rgb(73, 73, 73);</string>
            </property>
            <property name="frameShape">
-            <enum>QFrame::NoFrame</enum>
+            <enum>QFrame::Shape::NoFrame</enum>
            </property>
            <property name="frameShadow">
-            <enum>QFrame::Sunken</enum>
+            <enum>QFrame::Shadow::Sunken</enum>
            </property>
            <layout class="QHBoxLayout" name="horizontalLayout_4" stretch="1,5">
             <property name="spacing">
@@ -170,10 +168,10 @@ color: rgb(156, 156, 156);</string>
                 <item>
                  <spacer name="horizontalSpacer">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeType">
-                   <enum>QSizePolicy::Preferred</enum>
+                   <enum>QSizePolicy::Policy::Preferred</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -271,10 +269,10 @@ color: rgb(156, 156, 156);</string>
                  </size>
                 </property>
                 <property name="frameShape">
-                 <enum>QFrame::StyledPanel</enum>
+                 <enum>QFrame::Shape::StyledPanel</enum>
                 </property>
                 <property name="frameShadow">
-                 <enum>QFrame::Raised</enum>
+                 <enum>QFrame::Shadow::Raised</enum>
                 </property>
                 <layout class="QGridLayout" name="gridLayout_2">
                  <property name="leftMargin">
@@ -326,10 +324,10 @@ color: rgb(156, 156, 156);</string>
               <item>
                <spacer name="verticalSpacer_2">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::Preferred</enum>
+                 <enum>QSizePolicy::Policy::Preferred</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -347,7 +345,7 @@ color: rgb(156, 156, 156);</string>
                <number>5</number>
               </property>
               <property name="sizeConstraint">
-               <enum>QLayout::SetMaximumSize</enum>
+               <enum>QLayout::SizeConstraint::SetMaximumSize</enum>
               </property>
               <property name="leftMargin">
                <number>5</number>
@@ -387,7 +385,7 @@ color: rgb(156, 156, 156);</string>
                    <string>项目：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -409,7 +407,6 @@ color: rgb(156, 156, 156);</string>
                    <font>
                     <family>Microsoft YaHei UI</family>
                     <pointsize>10</pointsize>
-                    <weight>75</weight>
                     <bold>true</bold>
                    </font>
                   </property>
@@ -453,7 +450,7 @@ color: rgb(120, 120, 120);</string>
                    <string>资产名：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -523,7 +520,7 @@ color: rgb(120, 120, 120);</string>
                    <string>类型：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -595,7 +592,7 @@ color: rgb(120, 120, 120);</string>
                    <string>中文名：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -635,7 +632,7 @@ color: rgb(120, 120, 120);</string>
               <item>
                <widget class="Line" name="line_2">
                 <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
+                 <enum>Qt::Orientation::Horizontal</enum>
                 </property>
                </widget>
               </item>
@@ -654,7 +651,7 @@ color: rgb(120, 120, 120);</string>
                  <string/>
                 </property>
                 <property name="alignment">
-                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+                 <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
                 </property>
                 <property name="flat">
                  <bool>true</bool>
@@ -732,10 +729,10 @@ color: rgb(120, 120, 120);</string>
               <item>
                <spacer name="verticalSpacer">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::Expanding</enum>
+                 <enum>QSizePolicy::Policy::Expanding</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -778,10 +775,10 @@ color: rgb(120, 120, 120);</string>
             <string notr="true">background-color: rgb(73, 73, 73);</string>
            </property>
            <property name="frameShape">
-            <enum>QFrame::NoFrame</enum>
+            <enum>QFrame::Shape::NoFrame</enum>
            </property>
            <property name="frameShadow">
-            <enum>QFrame::Sunken</enum>
+            <enum>QFrame::Shadow::Sunken</enum>
            </property>
            <layout class="QHBoxLayout" name="horizontalLayout_10" stretch="1,5">
             <property name="spacing">
@@ -837,10 +834,10 @@ color: rgb(120, 120, 120);</string>
                 <item>
                  <spacer name="horizontalSpacer_3">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeType">
-                   <enum>QSizePolicy::Fixed</enum>
+                   <enum>QSizePolicy::Policy::Fixed</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -938,10 +935,10 @@ color: rgb(120, 120, 120);</string>
                  </size>
                 </property>
                 <property name="frameShape">
-                 <enum>QFrame::StyledPanel</enum>
+                 <enum>QFrame::Shape::StyledPanel</enum>
                 </property>
                 <property name="frameShadow">
-                 <enum>QFrame::Raised</enum>
+                 <enum>QFrame::Shadow::Raised</enum>
                 </property>
                 <layout class="QGridLayout" name="gridLayout_4">
                  <property name="leftMargin">
@@ -993,10 +990,10 @@ color: rgb(120, 120, 120);</string>
               <item>
                <spacer name="verticalSpacer_3">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::Preferred</enum>
+                 <enum>QSizePolicy::Policy::Preferred</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -1014,7 +1011,7 @@ color: rgb(120, 120, 120);</string>
                <number>5</number>
               </property>
               <property name="sizeConstraint">
-               <enum>QLayout::SetMaximumSize</enum>
+               <enum>QLayout::SizeConstraint::SetMaximumSize</enum>
               </property>
               <property name="leftMargin">
                <number>5</number>
@@ -1054,7 +1051,7 @@ color: rgb(120, 120, 120);</string>
                    <string>项目：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -1064,7 +1061,6 @@ color: rgb(120, 120, 120);</string>
                    <font>
                     <family>Microsoft YaHei UI</family>
                     <pointsize>10</pointsize>
-                    <weight>75</weight>
                     <bold>true</bold>
                    </font>
                   </property>
@@ -1108,7 +1104,7 @@ color: rgb(120, 120, 120);</string>
                    <string>资产名：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -1166,7 +1162,7 @@ color: rgb(120, 120, 120);</string>
                    <string>类型：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -1232,7 +1228,7 @@ color: rgb(120, 120, 120);</string>
                    <string>中文名：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -1260,7 +1256,7 @@ color: rgb(120, 120, 120);</string>
               <item>
                <widget class="Line" name="line_3">
                 <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
+                 <enum>Qt::Orientation::Horizontal</enum>
                 </property>
                </widget>
               </item>
@@ -1279,7 +1275,7 @@ color: rgb(120, 120, 120);</string>
                  <string/>
                 </property>
                 <property name="alignment">
-                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+                 <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
                 </property>
                 <property name="flat">
                  <bool>true</bool>
@@ -1373,10 +1369,10 @@ color: rgb(120, 120, 120);</string>
               <item>
                <spacer name="verticalSpacer_4">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::Expanding</enum>
+                 <enum>QSizePolicy::Policy::Expanding</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -1419,10 +1415,10 @@ color: rgb(120, 120, 120);</string>
             <string notr="true">background-color: rgb(73, 73, 73);</string>
            </property>
            <property name="frameShape">
-            <enum>QFrame::NoFrame</enum>
+            <enum>QFrame::Shape::NoFrame</enum>
            </property>
            <property name="frameShadow">
-            <enum>QFrame::Sunken</enum>
+            <enum>QFrame::Shadow::Sunken</enum>
            </property>
            <layout class="QHBoxLayout" name="horizontalLayout_16" stretch="1,5">
             <property name="spacing">
@@ -1478,10 +1474,10 @@ color: rgb(120, 120, 120);</string>
                 <item>
                  <spacer name="horizontalSpacer_4">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeType">
-                   <enum>QSizePolicy::Fixed</enum>
+                   <enum>QSizePolicy::Policy::Fixed</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -1579,10 +1575,10 @@ color: rgb(120, 120, 120);</string>
                  </size>
                 </property>
                 <property name="frameShape">
-                 <enum>QFrame::StyledPanel</enum>
+                 <enum>QFrame::Shape::StyledPanel</enum>
                 </property>
                 <property name="frameShadow">
-                 <enum>QFrame::Raised</enum>
+                 <enum>QFrame::Shadow::Raised</enum>
                 </property>
                 <layout class="QGridLayout" name="gridLayout_6">
                  <property name="leftMargin">
@@ -1634,10 +1630,10 @@ color: rgb(120, 120, 120);</string>
               <item>
                <spacer name="verticalSpacer_5">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::Preferred</enum>
+                 <enum>QSizePolicy::Policy::Preferred</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -1655,7 +1651,7 @@ color: rgb(120, 120, 120);</string>
                <number>5</number>
               </property>
               <property name="sizeConstraint">
-               <enum>QLayout::SetMaximumSize</enum>
+               <enum>QLayout::SizeConstraint::SetMaximumSize</enum>
               </property>
               <property name="leftMargin">
                <number>5</number>
@@ -1695,7 +1691,7 @@ color: rgb(120, 120, 120);</string>
                    <string>项目：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -1723,7 +1719,6 @@ color: rgb(120, 120, 120);</string>
                    <font>
                     <family>Microsoft YaHei UI</family>
                     <pointsize>10</pointsize>
-                    <weight>75</weight>
                     <bold>true</bold>
                    </font>
                   </property>
@@ -1763,7 +1758,7 @@ color: rgb(120, 120, 120);</string>
                    <string>资产名：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -1821,7 +1816,7 @@ color: rgb(120, 120, 120);</string>
                    <string>类型：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -1887,7 +1882,7 @@ color: rgb(120, 120, 120);</string>
                    <string>中文名：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -1915,7 +1910,7 @@ color: rgb(120, 120, 120);</string>
               <item>
                <widget class="Line" name="line_4">
                 <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
+                 <enum>Qt::Orientation::Horizontal</enum>
                 </property>
                </widget>
               </item>
@@ -1934,7 +1929,7 @@ color: rgb(120, 120, 120);</string>
                  <string/>
                 </property>
                 <property name="alignment">
-                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+                 <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
                 </property>
                 <property name="flat">
                  <bool>true</bool>
@@ -1996,10 +1991,10 @@ color: rgb(120, 120, 120);</string>
               <item>
                <spacer name="verticalSpacer_6">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::Expanding</enum>
+                 <enum>QSizePolicy::Policy::Expanding</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -2042,10 +2037,10 @@ color: rgb(120, 120, 120);</string>
             <string notr="true">background-color: rgb(73, 73, 73);</string>
            </property>
            <property name="frameShape">
-            <enum>QFrame::NoFrame</enum>
+            <enum>QFrame::Shape::NoFrame</enum>
            </property>
            <property name="frameShadow">
-            <enum>QFrame::Sunken</enum>
+            <enum>QFrame::Shadow::Sunken</enum>
            </property>
            <layout class="QHBoxLayout" name="horizontalLayout_22" stretch="1,5">
             <property name="spacing">
@@ -2101,10 +2096,10 @@ color: rgb(120, 120, 120);</string>
                 <item>
                  <spacer name="horizontalSpacer_5">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeType">
-                   <enum>QSizePolicy::Fixed</enum>
+                   <enum>QSizePolicy::Policy::Fixed</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -2174,10 +2169,10 @@ color: rgb(120, 120, 120);</string>
                  </size>
                 </property>
                 <property name="frameShape">
-                 <enum>QFrame::StyledPanel</enum>
+                 <enum>QFrame::Shape::StyledPanel</enum>
                 </property>
                 <property name="frameShadow">
-                 <enum>QFrame::Raised</enum>
+                 <enum>QFrame::Shadow::Raised</enum>
                 </property>
                 <layout class="QGridLayout" name="gridLayout_8">
                  <property name="leftMargin">
@@ -2303,7 +2298,7 @@ color: rgb(120, 120, 120);</string>
                 <item>
                  <spacer name="horizontalSpacer_6">
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                   <property name="sizeHint" stdset="0">
                    <size>
@@ -2323,7 +2318,7 @@ color: rgb(120, 120, 120);</string>
                <number>3</number>
               </property>
               <property name="sizeConstraint">
-               <enum>QLayout::SetMaximumSize</enum>
+               <enum>QLayout::SizeConstraint::SetMaximumSize</enum>
               </property>
               <property name="leftMargin">
                <number>5</number>
@@ -2363,7 +2358,7 @@ color: rgb(120, 120, 120);</string>
                    <string>项目：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -2391,7 +2386,6 @@ color: rgb(120, 120, 120);</string>
                    <font>
                     <family>Microsoft YaHei UI</family>
                     <pointsize>10</pointsize>
-                    <weight>75</weight>
                     <bold>true</bold>
                    </font>
                   </property>
@@ -2431,7 +2425,7 @@ color: rgb(120, 120, 120);</string>
                    <string>资产名：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -2482,7 +2476,7 @@ color: rgb(120, 120, 120);</string>
                    <string>动作名：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -2516,7 +2510,7 @@ color: rgb(120, 120, 120);</string>
               <item>
                <widget class="Line" name="line">
                 <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
+                 <enum>Qt::Orientation::Horizontal</enum>
                 </property>
                </widget>
               </item>
@@ -2555,7 +2549,7 @@ color: rgb(120, 120, 120);</string>
                    <string>帧数范围：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -2613,7 +2607,7 @@ color: rgb(120, 120, 120);</string>
                    <string>Start/End：</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -2666,7 +2660,7 @@ color: rgb(120, 120, 120);</string>
               <item>
                <widget class="Line" name="line_5">
                 <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
+                 <enum>Qt::Orientation::Horizontal</enum>
                 </property>
                </widget>
               </item>
@@ -2685,7 +2679,7 @@ color: rgb(120, 120, 120);</string>
                  <string/>
                 </property>
                 <property name="alignment">
-                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+                 <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
                 </property>
                 <property name="flat">
                  <bool>true</bool>
@@ -2737,10 +2731,10 @@ color: rgb(120, 120, 120);</string>
               <item>
                <spacer name="verticalSpacer_8">
                 <property name="orientation">
-                 <enum>Qt::Vertical</enum>
+                 <enum>Qt::Orientation::Vertical</enum>
                 </property>
                 <property name="sizeType">
-                 <enum>QSizePolicy::Expanding</enum>
+                 <enum>QSizePolicy::Policy::Expanding</enum>
                 </property>
                 <property name="sizeHint" stdset="0">
                  <size>
@@ -2765,7 +2759,7 @@ color: rgb(120, 120, 120);</string>
         <number>0</number>
        </property>
        <property name="sizeConstraint">
-        <enum>QLayout::SetMinimumSize</enum>
+        <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
        </property>
        <item>
         <widget class="QComboBox" name="logHistory_comb"/>
@@ -2794,7 +2788,6 @@ color: rgb(120, 120, 120);</string>
           <font>
            <family>Microsoft YaHei UI</family>
            <pointsize>9</pointsize>
-           <weight>75</weight>
            <bold>true</bold>
           </font>
          </property>
@@ -2830,7 +2823,7 @@ color: rgb(120, 120, 120);</string>
           <string/>
          </property>
          <property name="alignment">
-          <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+          <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
          </property>
          <property name="placeholderText">
           <string>添加版本备注：</string>
@@ -2842,7 +2835,7 @@ color: rgb(120, 120, 120);</string>
     </layout>
    </item>
    <item row="3" column="0">
-    <layout class="QHBoxLayout" name="horizontalLayout_2">
+    <layout class="QHBoxLayout" name="progress_hlayout">
      <property name="topMargin">
       <number>3</number>
      </property>
@@ -2874,7 +2867,7 @@ color: rgb(120, 120, 120);</string>
      <item>
       <spacer name="horizontalSpacer_2">
        <property name="orientation">
-        <enum>Qt::Horizontal</enum>
+        <enum>Qt::Orientation::Horizontal</enum>
        </property>
        <property name="sizeHint" stdset="0">
         <size>
@@ -2926,7 +2919,7 @@ color: rgb(120, 120, 120);</string>
     </layout>
    </item>
    <item row="0" column="0">
-    <layout class="QHBoxLayout" name="horizontalLayout">
+    <layout class="QHBoxLayout" name="title_hlayout">
      <property name="spacing">
       <number>15</number>
      </property>
@@ -2960,7 +2953,7 @@ color: rgb(120, 120, 120);</string>
         <bool>true</bool>
        </property>
        <property name="alignment">
-        <set>Qt::AlignJustify|Qt::AlignVCenter</set>
+        <set>Qt::AlignmentFlag::AlignJustify|Qt::AlignmentFlag::AlignVCenter</set>
        </property>
       </widget>
      </item>
@@ -2976,7 +2969,6 @@ color: rgb(120, 120, 120);</string>
         <font>
          <family>Microsoft YaHei UI</family>
          <pointsize>9</pointsize>
-         <weight>75</weight>
          <bold>true</bold>
         </font>
        </property>
@@ -2985,6 +2977,26 @@ color: rgb(120, 120, 120);</string>
        </property>
        <property name="wordWrap">
         <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="fresh_ptn">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="font">
+        <font>
+         <family>Microsoft YaHei</family>
+         <pointsize>11</pointsize>
+         <bold>true</bold>
+        </font>
+       </property>
+       <property name="text">
+        <string>刷新</string>
        </property>
       </widget>
      </item>

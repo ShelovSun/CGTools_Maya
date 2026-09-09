@@ -540,9 +540,10 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.ui = loader
         f.close()
         self.setCentralWidget(self.ui)
-        ''' model '''
         self.ui.log_progressBar.setVisible(False)
-        self.ui.icon_label.setPixmap(QtGui.QPixmap('%s/icon/question.png' % self.scriptsPath))
+        self.ui.icon_label.setPixmap(QtGui.QPixmap('%s/icon/pub_upload.png' % self.scriptsPath))
+        self.ui.fresh_ptn.clicked.connect(self.tabChanged)
+        ''' model '''
         self.ui.render_bttn.setIcon(QtGui.QPixmap('%s/icon/shot.png' % self.scriptsPath))
         self.ui.render_bttn.clicked.connect(lambda: self.renderIcon(self.ui.Preview_label))
         self.ui.capture_btn.setIcon(QtGui.QPixmap('%s/icon/capture.png' % self.scriptsPath))

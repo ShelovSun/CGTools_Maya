@@ -37,7 +37,7 @@ class FolderItem(studiolibrary.LibraryItem):
     TYPE_ICON_PATH = ""  # Don't show a type icon for the folder item
     THUMBNAIL_PATH = studiolibrary.resource.get("icons", "folder_item.png")
 
-    DEFAULT_ICON_COLOR = "rgb(150,150,150,100)"
+    DEFAULT_ICON_COLOR = "rgba(150,150,150,100)"
 
     DEFAULT_ICON_COLORS = [
         "rgb(239, 112, 99)",
@@ -100,6 +100,9 @@ class FolderItem(studiolibrary.LibraryItem):
             data["icon"] = "trash.svg"
 
         return data
+
+    def updatePermissionsEnabled(self):
+        return True
 
     def updateMetadata(self, metadata):
         """
@@ -229,7 +232,7 @@ class FolderItem(studiolibrary.LibraryItem):
                 QtCore.Qt.SmoothTransformation
             )
 
-            color2 = studioqt.Color.fromString("rgb(255,255,255,150)")
+            color2 = studioqt.Color.fromString("rgba(255,255,255,150)")
             pixmap2 = studioqt.Pixmap(customPath)
             pixmap2.setColor(color2)
             pixmap2 = pixmap2.scaled(
@@ -341,11 +344,15 @@ class FolderItem(studiolibrary.LibraryItem):
             libraryWindow,
             "Create folder",
             "Create a new folder with the name:",
+            buttons=[
+                ("Create", QtWidgets.QDialogButtonBox.AcceptRole),
+                ("Cancel", QtWidgets.QDialogButtonBox.RejectRole)
+            ]
         )
 
         name = name.strip()
 
-        if name and button == QtWidgets.QDialogButtonBox.Ok:
+        if name and button == "Create":
             path = os.path.join(path, name)
 
             item = cls(path, libraryWindow=libraryWindow)

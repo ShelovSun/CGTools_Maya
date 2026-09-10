@@ -27,6 +27,7 @@ class ColorButton(QtWidgets.QPushButton):
         self._color = None
 
         self.setCheckable(True)
+        self.setCursor(QtCore.Qt.PointingHandCursor)
 
     def setColor(self, color):
         """
@@ -43,7 +44,7 @@ class ColorButton(QtWidgets.QPushButton):
 
         css = """
         ColorButton {
-            background-color: rgba(RGB);
+            background-color: rgb(RGB);
         }
         
         ColorButton:hover {
@@ -99,7 +100,7 @@ class ColorPickerAction(QtWidgets.QWidgetAction):
         widget = QtWidgets.QFrame(menu)
         widget.setObjectName("colorPickerAction")
 
-        actionLayout = QtWidgets.QHBoxLayout(widget)
+        actionLayout = QtWidgets.QHBoxLayout()
         actionLayout.setContentsMargins(0, 0, 0, 0)
         actionLayout.addWidget(self.picker(), stretch=1)
         widget.setLayout(actionLayout)
@@ -325,13 +326,13 @@ def example():
     """
 
     colors = [
-        "rgb(230, 60, 60, 255)",
+        "rgba(230, 60, 60, 255)",
         "rgb(255, 90, 40)",
-        "rgb(255, 125, 100, 255)",
-        "rgb(250, 200, 0, 255)",
-        "rgb(80, 200, 140, 255)",
-        "rgb(50, 180, 240, 255)",
-        "rgb(110, 110, 240, 255)",
+        "rgba(255, 125, 100, 255)",
+        "rgba(250, 200, 0, 255)",
+        "rgba(80, 200, 140, 255)",
+        "rgba(50, 180, 240, 255)",
+        "rgba(110, 110, 240, 255)",
     ]
 
     browserColors = []

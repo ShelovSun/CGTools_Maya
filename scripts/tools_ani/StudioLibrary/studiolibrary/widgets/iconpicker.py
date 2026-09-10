@@ -30,6 +30,7 @@ class IconButton(QtWidgets.QToolButton):
         self._iconPath = None
 
         self.setCheckable(True)
+        self.setCursor(QtCore.Qt.PointingHandCursor)
 
     def setIconPath(self, path):
         """
@@ -38,10 +39,17 @@ class IconButton(QtWidgets.QToolButton):
         :type path: str
         """
         self._iconPath = path
-        self.setToolTip(path)
-        self.setStatusTip(path)
+        self.updateIcon()
 
-        icon = resource.icon(path, color="rgb(220,220,220)")
+    def updateIcon(self):
+
+        self.setToolTip(self._iconPath)
+        self.setStatusTip(self._iconPath)
+
+        color = self.palette().color(self.foregroundRole())
+        color = studioqt.Color.fromColor(color)
+
+        icon = resource.icon(self._iconPath, color=color)
         self.setIcon(icon)
 
     def iconPath(self):
@@ -92,7 +100,7 @@ class IconPickerAction(QtWidgets.QWidgetAction):
 
         self.picker().setParent(widget)
 
-        actionLayout = QtWidgets.QHBoxLayout(widget)
+        actionLayout = QtWidgets.QHBoxLayout()
         actionLayout.setContentsMargins(0, 0, 0, 0)
         actionLayout.addWidget(self.picker(), stretch=1)
         widget.setLayout(actionLayout)
@@ -180,6 +188,10 @@ class IconPickerWidget(QtWidgets.QFrame):
         for button in self._buttons:
             button.setChecked(button.iconPath() == self.currentIcon())
 
+    def updateTheme(self):
+        for button in self._buttons:
+            button.updateIcon()
+
     def setIcons(self, icons):
         """
         Set the colors for the color bar.
@@ -203,7 +215,7 @@ class IconPickerWidget(QtWidgets.QFrame):
 
             button = self.BUTTON_CLASS(self)
             button.setIconPath(iconPath)
-            button.setIconSize(QtCore.QSize(16, 16))
+            # button.setIconSize(QtCore.QSize(16, 16))
 
             button.setSizePolicy(
                 QtWidgets.QSizePolicy.Expanding,
@@ -230,7 +242,9 @@ class IconPickerWidget(QtWidgets.QFrame):
 
         self._menuButton.clicked.connect(self.browseColor)
         self.layout().addWidget(self._menuButton)
+
         self.refresh()
+        self.updateTheme()
 
     @QtCore.Slot()
     def blankSlot(self):
@@ -276,7 +290,7 @@ def example():
         margin: 2px;
         min-width: 18px;
         min-height: 18px;
-        background-color: rgb(0,0,0,0);
+        background-color: rgba(0,0,0,0);
     }
     """
 

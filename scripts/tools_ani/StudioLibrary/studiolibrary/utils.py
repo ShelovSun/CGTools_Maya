@@ -10,6 +10,7 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library. If not, see <http://www.gnu.org/licenses/>.
 
+import re
 import os
 import sys
 import json
@@ -20,13 +21,20 @@ import shutil
 import locale
 import logging
 import getpass
+import random
 import tempfile
 import platform
 import threading
+import traceback
 import collections
 import distutils.version
 
 from datetime import datetime
+
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
 
 try:
     from collections import Mapping
@@ -43,7 +51,6 @@ except ImportError:
 import studiolibrary
 
 from studiovendor import six
-from studiovendor.six.moves import urllib
 
 
 __all__ = [
@@ -57,7 +64,7 @@ __all__ = [
     "setLibraries",
     "removeLibrary",
     "defaultLibrary",
-    "isLatestRelease",
+    "checkForUpdates",
     "read",
     "write",
     "update",
@@ -95,7 +102,6 @@ __all__ = [
     "timeAgo",
     "modules",
     "setDebugMode",
-    "sendAnalytics",
     "showInFolder",
     "stringToList",
     "listToString",
@@ -104,6 +110,8 @@ __all__ = [
     "registeredItems",
     "runTests",
     "findItemsInFolders",
+    "isVersionPath",
+    "latestVersionPath",
 ]
 
 
@@ -232,9 +240,9 @@ def setLibraries(libraries):
         import studiolibrary
 
         libraries = [
-            {"name":"test1", "path":r"D:\LibraryData", "default":True}},
-            {"name":"test2", "path":r"D:\LibraryData2"},
-            {"name":"Temp", "path":r"C:\temp"},
+            {"name":"test1", "path": r"D:/LibraryData", "default":True},
+            {"name":"test2", "path": r"D:/LibraryData2"},
+            {"name":"Temp", "path": r"C:/temp"},
         ]
 
         studiolibrary.setLibraries(libraries)
@@ -250,45 +258,6 @@ def setLibraries(libraries):
     remove = set(old) - set(new)
     for name in remove:
         removeLibrary(name)
-
-
-def isLatestRelease(callback=None):
-    thread = threading.Thread(target=_isLatestRelease, args=(callback,))
-    thread.start()
-
-
-def _isLatestRelease(callback=None):
-    """
-    Check if the installed version of the Studio Library is the latest.
-
-    :rtype: bool
-    """
-    url = "https://api.github.com/repos/krathjen/studiolibrary/releases/latest"
-
-    try:
-        f = urllib.request.urlopen(url)
-        result = json.load(f)
-    except Exception:
-        callback(False)
-        return False
-
-    if result:
-        latestVersion = result.get('tag_name', '0.0.0')
-        currentVersion = studiolibrary.__version__
-
-        # Ignore beta releases if the current version is not beta
-        if "b" in latestVersion and "b" not in currentVersion:
-            callback(False)
-            return False
-
-        v1 = distutils.version.LooseVersion(latestVersion)
-        v2 = distutils.version.LooseVersion(currentVersion)
-
-        callback(v1 > v2)
-        return v1 > v2
-
-    callback(False)
-    return False
 
 
 def modules():
@@ -615,7 +584,7 @@ def formatPath(formatString, path="", **kwargs):
 
 def copyPath(src, dst, force=False):
     """
-    Make a copy of the given for_Maya path to the given destination path.
+    Make a copy of the given src path to the given destination path.
 
     :type src: str
     :type dst: str
@@ -685,7 +654,7 @@ def movePath(src, dst):
 
 def movePaths(srcPaths, dst):
     """
-    Move the given for_Maya paths to the given dst path.
+    Move the given src paths to the given dst path.
 
     :type srcPaths: list[str]
     :type dst: str
@@ -808,6 +777,13 @@ def read(path):
 
 
 def write(path, data):
+    if six.PY2:
+        write2(path, data)
+    else:
+        write3(path, data)
+
+
+def write2(path, data):
     """
     Write the given data to the given file on disc.
 
@@ -864,6 +840,42 @@ def write(path, data):
             os.rename(bak, path)
 
         raise
+
+
+def write3(path, data):
+    """
+    Writes the given data to a file atomically by first writing to a
+    temp file and then renaming it.
+
+    This approach avoids using the tempfile module to keep permissions
+    consistent with the write2 function.
+    """
+    path = normPath(path)
+    data = relPath(data, path)
+
+    dirname = os.path.dirname(path)
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+
+    tmp = None
+
+    try:
+
+        # Create a temporary file with a random name
+        characters = "abcdefghijklmnopqrstuvwxyz0123456789_"
+        name = ''.join(random.choice(characters) for _ in range(8))
+        tmp = os.path.join(dirname, name + ".delete")
+
+        with open(tmp, "w") as f:
+            f.write(data)
+            f.flush()
+
+        # Introduced in python 3.3
+        os.replace(tmp, path)
+
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def update(data, other):
@@ -1008,7 +1020,7 @@ def replaceJson(path, old, new, count=-1):
 
 def renamePathInFile(path, src, dst):
     """
-    Rename the given for_Maya path to the given dst path.
+    Rename the given src path to the given dst path.
 
     :type path: str
     :type src: str
@@ -1021,7 +1033,7 @@ def renamePathInFile(path, src, dst):
     src1 = '"' + src + '"'
     dst2 = '"' + dst + '"'
 
-    # Replace paths that match exactly the given for_Maya and dst strings
+    # Replace paths that match exactly the given src and dst strings
     replaceJson(path, src1, dst2)
 
     src2 = '"' + src
@@ -1034,7 +1046,7 @@ def renamePathInFile(path, src, dst):
     if not dst2.endswith("/"):
         dst2 += "/"
 
-    # Replace all paths that start with the for_Maya path with the dst path
+    # Replace all paths that start with the src path with the dst path
     replaceJson(path, src2, dst2)
 
 
@@ -1209,6 +1221,27 @@ def stringToList(data):
     return eval(data)
 
 
+def isVersionPath(path):
+    basename = path.rstrip('/').split('/')[-1]
+    if re.match(r'^v\d+$', basename):
+        return True
+    return False
+
+
+def latestVersionPath(path):
+    version = ""
+
+    for name in sorted(os.listdir(path), reverse=True):
+        if isVersionPath(name):
+            version = name
+            break
+
+    if version:
+        return "{}/{}".format(path, version)
+    else:
+        return path
+
+
 def listPaths(path):
     """
     Return a list of paths that are in the given directory.
@@ -1276,18 +1309,31 @@ def walkup(path, match=None, depth=3, sep="/"):
     depthCount = 0
 
     for i, folder in enumerate(folders):
-        if folder:
+        if not folder:
+            continue
 
-            if depthCount > depth:
-                break
-            depthCount += 1
+        if depthCount > depth:
+            break
+        depthCount += 1
 
-            folder = os.path.sep.join(folders[:i*-1])
-            if os.path.exists(folder):
-                for filename in os.listdir(folder):
-                    path = os.path.join(folder, filename)
-                    if match is None or match(path):
-                        yield normPath(path)
+        folder = os.path.sep.join(folders[:i*-1])
+        if not os.path.isdir(folder):
+            continue
+        try:
+            filenames = os.listdir(folder)
+        except PermissionError:
+            continue  # expected on network shares
+        except OSError as e:
+            if getattr(e, 'winerror', None) == 59:
+                continue  # "An unexpected network error occurred"
+            if getattr(e, 'winerror', None) == 6:
+                # "The handle is invalid" - something weird on network share
+                continue
+            raise
+        for filename in filenames:
+            path = os.path.join(folder, filename)
+            if match is None or match(path):
+                yield normPath(path)
 
 
 def timeAgo(timeStamp):
@@ -1331,29 +1377,29 @@ def timeAgo(timeStamp):
         return "yesterday"
 
     if dayDiff < 7:
-        return str(dayDiff) + " days ago"
+        return "{:.0f} days ago".format(dayDiff)
 
     if dayDiff < 31:
         v = dayDiff / 7
         if v == 1:
-            return str(v) + " week ago"
-        return str(dayDiff / 7) + " weeks ago"
+            return "{:.0f} week ago".format(v)
+        return "{:.0f} weeks ago".format(dayDiff / 7)
 
     if dayDiff < 365:
         v = dayDiff / 30
         if v == 1:
-            return str(v) + " month ago"
-        return str(v) + " months ago"
+            return "{:.0f} month ago".format(v)
+        return "{:.0f} months ago".format(v)
 
     v = dayDiff / 365
     if v == 1:
-        return str(v) + " year ago"
-    return str(v) + " years ago"
+        return "{:.0f} year ago".format(v)
+    return "{:.0f} years ago".format(v)
 
 
 def userUuid():
     """
-    Return a uuid4 for the user.
+    Return a unique uuid4 for each user.
     
     This does not compromise privacy as it generates a random uuid4 string
     for the current user.
@@ -1361,83 +1407,15 @@ def userUuid():
     :rtype: str
     """
     path = os.path.join(localPath(), "settings.json")
-    data = readJson(path)
-    userUuid_ = data.get("userUuid")
+    userUuid_ = readJson(path).get("userUuid")
 
     if not userUuid_:
-        userUuid_ = str(uuid.uuid4())
-        data = {"userUuid": userUuid_}
-        updateJson(path, data)
+        updateJson(path, {"userUuid": str(uuid.uuid4())})
+
+        # Read the uuid again to make sure its persistent
+        userUuid_ = readJson(path).get("userUuid")
 
     return userUuid_
-
-
-def sendAnalytics(
-        name,
-        version="1.0.0",
-        an="StudioLibrary",
-        tid=None,
-):
-    """
-    Send an analytic event to google analytics.
-    
-    This is only used once and is not used to send any personal/user data.
-
-    Example:
-        # logs an event named "mainWindow"
-        sendAnalytics("mainWindow")
-
-    :type name: str
-    :type version: str
-    :type an: str
-    :type tid: str
-    :rtype: None
-    """
-    def _send(url):
-        try:
-            url = url.replace(" ", "")
-            f = urllib.request.urlopen(url)
-        except Exception:
-            pass
-
-    # Ignore analytics when reloading
-    if os.environ.get("STUDIO_LIBRARY_RELOADED") == "1":
-        return
-
-    if not studiolibrary.config.get('analyticsEnabled'):
-        return
-
-    tid = tid or studiolibrary.config.get('analyticsId')
-    cid = userUuid()
-
-    # In python 2.7 the getdefaultlocale function could return a None "ul"
-    ul, _ = locale.getdefaultlocale()
-    ul = ul or ""
-    ul = ul.replace("_", "-").lower()
-
-    tid = "UA-50172384-3"
-    url = "https://www.google-analytics.com/collect?" \
-          "v=1" \
-          "&ul={ul}" \
-          "&tid={tid}" \
-          "&an={an}" \
-          "&av={av}" \
-          "&cid={cid}" \
-          "&t=pageview" \
-          "&dp=/{name}" \
-          "&dt={av}" \
-
-    url = url.format(
-        tid=tid,
-        an=an,
-        av=version,
-        cid=cid,
-        name=name,
-        ul=ul,
-    )
-
-    t = threading.Thread(target=_send, args=(url,))
-    t.start()
 
 
 def showInFolder(path):
@@ -1478,6 +1456,81 @@ def showInFolder(path):
 
     logger.info("Call: '%s' with arguments: %s", cmd.__name__, args)
     cmd(*args)
+
+
+global DCC_INFO
+
+try:
+    import maya.cmds
+    DCC_INFO = {
+        "name": "maya",
+        "version": maya.cmds.about(q=True, version=True)
+    }
+except Exception as error:
+    DCC_INFO = {
+        "name": "undefined",
+        "version": "undefined",
+    }
+
+
+def osVersion():
+    try:
+        # Fix for Windows 11 returning the wrong version
+        if platform.system().lower() == "windows" and platform.release() == "10" and sys.getwindowsversion().build >= 22000:
+            return "11"
+    finally:
+        return platform.release().replace(' ', '%20')
+
+
+def checkForUpdates():
+    """
+    This function should only be used once every session unless specified by the user.
+
+    Returns True if a newer release is found for the given platform.
+
+    :rtype: dict
+    """
+    if os.environ.get("STUDIO_LIBRARY_RELOADED") == "1":
+        return {}
+
+    if not studiolibrary.config.get('checkForUpdatesEnabled', True):
+        return {}
+
+    # In python 2.7 the getdefaultlocale function could return a None "ul"
+    try:
+        ul, _ = locale.getdefaultlocale()
+        ul = ul or "undefined"
+        ul = ul.replace("_", "-").lower()
+    except Exception as error:
+        ul = "undefined"
+
+    try:
+        uid = userUuid() or "undefined"
+        url = "https://app.studiolibrary.com/releases?uid={uid}&v={v}&dv={dv}&dn={dn}&os={os}&ov={ov}&pv={pv}&ul={ul}"
+        url = url.format(
+            uid=uid,
+            v=studiolibrary.__version__,
+            dn=DCC_INFO.get("name").replace(' ', '%20'),
+            dv=DCC_INFO.get("version").replace(' ', '%20'),
+            os=platform.system().lower().replace(' ', '%20'),
+            ov=osVersion(),
+            pv=platform.python_version().replace(' ', '%20'),
+            ul=ul,
+        )
+
+        response = urlopen(url)
+
+        # Check the HTTP status code
+        if response.getcode() == 200:
+            json_content = response.read().decode('utf-8')
+            data = json.loads(json_content)
+            return data
+
+    except Exception as error:
+        logger.debug("Exception occurred:\n%s", traceback.format_exc())
+        pass
+
+    return {}
 
 
 def testNormPath():

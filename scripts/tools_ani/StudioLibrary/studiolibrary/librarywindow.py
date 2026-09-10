@@ -48,6 +48,19 @@ class GlobalSignal(QtCore.QObject):
     folderSelectionChanged = QtCore.Signal(object, object)
 
 
+class CheckForUpdate(QtCore.QThread):
+
+    finished = QtCore.Signal(object)
+
+    def __init__(self, url):
+        super(CheckForUpdate, self).__init__()
+        self.url = url
+
+    def run(self):
+        info = studiolibrary.checkForUpdates()
+        self.finished.emit(info)
+
+
 class LibraryWindow(QtWidgets.QWidget):
 
     _instances = {}
@@ -79,8 +92,8 @@ class LibraryWindow(QtWidgets.QWidget):
             "Folder": False
         },
         "theme": {
-            "accentColor": "rgb(70, 160, 210, 255)",
-            "backgroundColor": "rgb(60, 64, 79, 255)",
+            "accentColor": "rgb(60, 160, 210)",
+            "backgroundColor": "rgb(50, 50, 60)",
         }
     }
 
@@ -204,7 +217,6 @@ class LibraryWindow(QtWidgets.QWidget):
         self.setObjectName("studiolibrary")
 
         version = studiolibrary.version()
-        studiolibrary.sendAnalytics("MainWindow", version=version)
 
         self.setWindowIcon(studiolibrary.resource.icon("icon_black"))
 
@@ -227,7 +239,11 @@ class LibraryWindow(QtWidgets.QWidget):
         self._lockRegExp = None
         self._unlockRegExp = None
         self._settingsWidget = None
-        self._checkForUpdateThread = None
+
+        self._updateInfo = {}
+        self._checkForUpdateThread = CheckForUpdate(self)
+        self._checkForUpdateThread.finished.connect(self.checkForUpdateFinished)
+        self._checkForUpdateEnabled = True
 
         self._trashEnabled = self.TRASH_ENABLED
 
@@ -259,8 +275,6 @@ class LibraryWindow(QtWidgets.QWidget):
         self._searchWidget.setToolTip(tip)
         self._searchWidget.setStatusTip(tip)
 
-        self._sortByMenu = self.SORTBY_MENU_CLASS(self)
-        self._groupByMenu = self.GROUPBY_MENU_CLASS(self)
         self._filterByMenu = self.FILTERBY_MENU_CLASS(self)
         self._statusWidget = self.STATUS_WIDGET_CLASS(self)
 
@@ -277,8 +291,6 @@ class LibraryWindow(QtWidgets.QWidget):
         self._menuBarWidget = self.MENUBAR_WIDGET_CLASS(self)
         self._sidebarWidget = self.SIDEBAR_WIDGET_CLASS(self)
 
-        self._sortByMenu.setDataset(library)
-        self._groupByMenu.setDataset(library)
         self._filterByMenu.setDataset(library)
         self._itemsWidget.setDataset(library)
         self._searchWidget.setDataset(library)
@@ -293,54 +305,35 @@ class LibraryWindow(QtWidgets.QWidget):
         iconColor = self.iconColor()
 
         name = "New Item"
-        icon = studiolibrary.resource.icon("add_28")
-        icon.setColor(iconColor)
+        icon = studiolibrary.resource.icon("plus")
         tip = "Add a new item to the selected folder"
         self.addMenuBarAction(name, icon, tip, callback=self.showNewMenu)
-
         self._menuBarWidget.addWidget(self._searchWidget)
 
         name = "Filters"
         icon = studiolibrary.resource.icon("filter")
-        icon.setColor(iconColor)
         tip = "Filter the current results by type.\n" \
               "CTRL + Click will hide the others and show the selected one."
-        self.addMenuBarAction(name, icon, tip, callback=self.showFilterByMenu)
+        action = self.addMenuBarAction(name, icon, tip, callback=self.showFilterByMenu)
 
         name = "Item View"
-        icon = studiolibrary.resource.icon("view_settings")
-        icon.setColor(iconColor)
+        icon = studiolibrary.resource.icon("sliders")
         tip = "Change the style of the item view"
         self.addMenuBarAction(name, icon, tip, callback=self.showItemViewMenu)
 
-        name = "Group By"
-        icon = studiolibrary.resource.icon("groupby")
-        icon.setColor(iconColor)
-        tip = "Group the current items in the view by column"
-        self.addMenuBarAction(name, icon, tip, callback=self.showGroupByMenu)
-
-        name = "Sort By"
-        icon = studiolibrary.resource.icon("sortby")
-        icon.setColor(iconColor)
-        tip = "Sort the current items in the view by column"
-        self.addMenuBarAction(name, icon, tip, callback=self.showSortByMenu)
-
         name = "View"
-        icon = studiolibrary.resource.icon("view")
-        icon.setColor(iconColor)
+        icon = studiolibrary.resource.icon("columns-3")
         tip = "Choose to show/hide both the preview and navigation pane.\n" \
               "CTRL + Click will hide the menu bar as well."
         self.addMenuBarAction(name, icon, tip, callback=self.toggleView)
 
         name = "Sync items"
-        icon = studiolibrary.resource.icon("sync")
-        icon.setColor(iconColor)
+        icon = studiolibrary.resource.icon("arrows-rotate")
         tip = "Sync with the filesystem"
         self.addMenuBarAction(name, icon, tip, callback=self.sync)
 
         name = "Settings"
-        icon = studiolibrary.resource.icon("settings")
-        icon.setColor(iconColor)
+        icon = studiolibrary.resource.icon("bars")
         tip = "Settings menu"
         self.addMenuBarAction(name, icon, tip, callback=self.showSettingsMenu)
 
@@ -348,16 +341,16 @@ class LibraryWindow(QtWidgets.QWidget):
         # Setup Layout
         # -------------------------------------------------------------------
 
-        layout = QtWidgets.QVBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout()
         layout.setSpacing(0)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
-        layout = QtWidgets.QVBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout()
         layout.setContentsMargins(0, 1, 0, 0)
         self._previewFrame.setLayout(layout)
 
-        layout = QtWidgets.QVBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout()
         layout.setContentsMargins(0, 1, 0, 0)
 
         self._sidebarFrame.setLayout(layout)
@@ -407,11 +400,8 @@ class LibraryWindow(QtWidgets.QWidget):
 
         self.folderSelectionChanged.connect(self.updateLock)
 
-        self.updateViewButton()
-        self.updateFiltersButton()
+        self.updateMenuBar()
         self.updatePreviewWidget()
-
-        self.checkForUpdate()
 
         if path:
             self.setPath(path)
@@ -501,14 +491,19 @@ class LibraryWindow(QtWidgets.QWidget):
         self.folderSelectionChanged.emit(path)
         self.globalSignal.folderSelectionChanged.emit(self, path)
 
+    def isUpdateAvailable(self):
+        return self._updateAvailable
+
     def checkForUpdate(self):
         """Check if there are any new versions available."""
-        if studiolibrary.config.get("checkForUpdateEnabled"):
-            studiolibrary.isLatestRelease(callback=self.checkForUpdateFinished)
+        self._updateAvailableButton.hide()
+        if self.isCheckForUpdateEnabled():
+            self._checkForUpdateThread.start()
 
-    def checkForUpdateFinished(self, isReleaseLatest):
+    def checkForUpdateFinished(self, info):
         """Triggered when the check for update thread has finished."""
-        if isReleaseLatest:
+        self._updateInfo = info or {}
+        if self._updateInfo.get("updateFound"):
             self._updateAvailableButton.show()
         else:
             self._updateAvailableButton.hide()
@@ -646,12 +641,11 @@ class LibraryWindow(QtWidgets.QWidget):
 
         title = "Welcome"
         title = title.format(studiolibrary.version(), name)
-        icon = studiolibrary.resource.get('icons/icon_white.png')
         text = "Before you get started please choose a folder " \
                "location for storing the data. A network folder is " \
                "recommended for sharing within a studio."
 
-        dialog = studiolibrary.widgets.createMessageBox(self, title, text, headerIcon=icon)
+        dialog = studiolibrary.widgets.createMessageBox(self, title, text)
         dialog.show()
 
         dialog.accepted.connect(self.showChangePathDialog)
@@ -1036,7 +1030,7 @@ class LibraryWindow(QtWidgets.QWidget):
         widget = self.menuBarWidget().findToolButton("Filters")
         point = widget.mapToGlobal(QtCore.QPoint(0, widget.height()))
         self._filterByMenu.show(point)
-        self.updateFiltersButton()
+        self.updateMenuBar()
 
     def showGroupByMenu(self):
         """
@@ -1162,15 +1156,17 @@ class LibraryWindow(QtWidgets.QWidget):
                     "type": "color",
                     "value": accentColor,
                     "colors": [
-                        "rgb(225, 110, 110, 255)",
-                        # "rgb(220, 135, 100, 255)",
-                        "rgb(225, 150, 70, 255)",
-                        "rgb(225, 180, 35, 255)",
-                        "rgb(90, 175, 130, 255)",
-                        "rgb(100, 175, 160, 255)",
-                        "rgb(70, 160, 210, 255)",
-                        "rgb(110, 125, 220, 255)",
-                        "rgb(100, 120, 150, 255)",
+                        "rgb(225, 110, 110)",
+                        # "rgb(220, 135, 100)",
+                        "rgb(225, 150, 70)",
+                        "rgb(225, 180, 35)",
+                        "rgb(90, 175, 130)",
+                        "rgb(100, 175, 160)",
+                        "rgb(70, 160, 210)",
+                        # "rgb(5, 135, 245)",
+                        "rgb(30, 145, 245)",
+                        "rgb(110, 125, 220)",
+                        "rgb(100, 120, 150)",
                     ]
                 },
                 {
@@ -1178,14 +1174,14 @@ class LibraryWindow(QtWidgets.QWidget):
                     "type": "color",
                     "value": backgroundColor,
                     "colors": [
-                        "rgb(45, 45, 48, 255)",
-                        "rgb(55, 55, 60, 255)",
-                        "rgb(68, 68, 70, 255)",
-                        "rgb(80, 60, 80, 255)",
-                        "rgb(85, 60, 60, 255)",
-                        "rgb(60, 75, 75, 255)",
-                        "rgb(60, 64, 79, 255)",
-                        "rgb(245, 245, 255, 255)",
+                        "rgb(45, 45, 48)",
+                        "rgb(55, 55, 60)",
+                        "rgb(68, 68, 70)",
+                        "rgb(80, 60, 80)",
+                        "rgb(85, 60, 60)",
+                        "rgb(60, 75, 75)",
+                        "rgb(60, 64, 79)",
+                        "rgb(245, 245, 255)",
                     ]
                 },
             ],
@@ -1311,18 +1307,26 @@ class LibraryWindow(QtWidgets.QWidget):
 
         menu.addSeparator()
 
+        action = QtWidgets.QAction("Check For Updates", menu)
+        action.setCheckable(True)
+        action.setChecked(self.isCheckForUpdateEnabled())
+        action.triggered[bool].connect(self.setCheckForUpdateEnabled)
+        menu.addAction(action)
+
         action = QtWidgets.QAction("Debug Mode", menu)
         action.setCheckable(True)
         action.setChecked(self.isDebug())
         action.triggered[bool].connect(self.setDebugMode)
         menu.addAction(action)
 
+        menu.addSeparator()
+
         action = QtWidgets.QAction("Report Issue", menu)
-        action.triggered.connect(self.reportIssue)
+        action.triggered.connect(self.openReportUrl)
         menu.addAction(action)
 
         action = QtWidgets.QAction("Help", menu)
-        action.triggered.connect(self.help)
+        action.triggered.connect(self.openHelpUrl)
         menu.addAction(action)
 
         return menu
@@ -1431,6 +1435,14 @@ class LibraryWindow(QtWidgets.QWidget):
                     editMenu.addAction(action)
 
         menu.addSeparator()
+
+        sortByMenu = self.SORTBY_MENU_CLASS("Sort By", menu, self.library())
+        menu.addMenu(sortByMenu)
+
+        groupByMenu = self.GROUPBY_MENU_CLASS("Group By", menu, self.library())
+        menu.addMenu(groupByMenu)
+
+        menu.addSeparator()
         menu.addMenu(self.createSettingsMenu())
 
         return menu
@@ -1501,6 +1513,11 @@ class LibraryWindow(QtWidgets.QWidget):
 
         # Check if the items are moving to another folder.
         for item in items:
+
+            if item.isVersionPath():
+                raise NameError("You can only save items that were "
+                                "created using Studio Library version 2!")
+
             if os.path.dirname(item.path()) == dst:
                 return
 
@@ -1606,7 +1623,7 @@ class LibraryWindow(QtWidgets.QWidget):
         else:
             self._previewFrame.hide()
 
-        self.updateViewButton()
+        self.updateMenuBar()
 
     def setFoldersWidgetVisible(self, value):
         """
@@ -1622,7 +1639,7 @@ class LibraryWindow(QtWidgets.QWidget):
         else:
             self._sidebarFrame.hide()
 
-        self.updateViewButton()
+        self.updateMenuBar()
 
     def setMenuBarWidgetVisible(self, value):
         """
@@ -1810,9 +1827,10 @@ class LibraryWindow(QtWidgets.QWidget):
         """
         x, y, width, height = settings
 
-        screenGeometry = QtWidgets.QApplication.desktop().screenGeometry()
-        screenWidth = screenGeometry.width()
-        screenHeight = screenGeometry.height()
+        pos = QtGui.QCursor.pos()
+        geometry = QtWidgets.QApplication.screenAt(pos).availableGeometry()
+        screenWidth = geometry.width()
+        screenHeight = geometry.height()
 
         if x <= 0 or y <= 0 or x >= screenWidth or y >= screenHeight:
             self.centerWindow(width, height)
@@ -1846,6 +1864,7 @@ class LibraryWindow(QtWidgets.QWidget):
         settings['searchWidget'] = self.searchWidget().settings()
         settings['sidebarWidget'] = self.sidebarWidget().settings()
         settings["recursiveSearchEnabled"] = self.isRecursiveSearchEnabled()
+        settings["checkForUpdateEnabled"] = self.isCheckForUpdateEnabled()
 
         settings['filterByMenu'] = self._filterByMenu.settings()
 
@@ -1912,6 +1931,10 @@ class LibraryWindow(QtWidgets.QWidget):
             if value is not None:
                 self.setRecursiveSearchEnabled(value)
 
+            value = settings.get("checkForUpdateEnabled") or studiolibrary.config.get("checkForUpdateEnabled")
+            if value is not None:
+                self.setCheckForUpdateEnabled(value)
+
             value = settings.get('filterByMenu')
             if value is not None:
                 self._filterByMenu.setSettings(value)
@@ -1937,7 +1960,7 @@ class LibraryWindow(QtWidgets.QWidget):
 
         self.itemsWidget().setToastEnabled(True)
 
-        self.updateFiltersButton()
+        self.updateMenuBar()
 
     def updateSettings(self, settings):
         """
@@ -2044,11 +2067,9 @@ class LibraryWindow(QtWidgets.QWidget):
         if height:
             geometry.setHeight(height)
 
-        desktop = QtWidgets.QApplication.desktop()
-
-        pos = desktop.cursor().pos()
-        screen = desktop.screenNumber(pos)
-        centerPoint = desktop.screenGeometry(screen).center()
+        pos = QtGui.QCursor.pos()
+        screen = QtWidgets.QApplication.screenAt(pos)
+        centerPoint = screen.availableGeometry().center()
 
         geometry.moveCenter(centerPoint)
         self.window().setGeometry(geometry)
@@ -2368,9 +2389,14 @@ class LibraryWindow(QtWidgets.QWidget):
             text = "Are you sure you want to move the selected" \
                    "item/s to the trash?"
 
-            result = self.showQuestionDialog(title, text)
+            buttons = [
+                ("Move to Trash", QtWidgets.QDialogButtonBox.AcceptRole),
+                QtWidgets.QDialogButtonBox.Cancel
+            ]
 
-            if result == QtWidgets.QDialogButtonBox.Yes:
+            result = studiolibrary.widgets.MessageBox.question(self, title, text, buttons=buttons)
+
+            if result != QtWidgets.QDialogButtonBox.Cancel:
                 self.moveItemsToTrash(items)
 
     # -----------------------------------------------------------------------
@@ -2474,10 +2500,11 @@ class LibraryWindow(QtWidgets.QWidget):
         :type buttons: list[QMessageBox.StandardButton] 
         :rtype: QMessageBox.StandardButton
         """
-        buttons = buttons or \
-                  QtWidgets.QDialogButtonBox.Yes | \
-                  QtWidgets.QDialogButtonBox.No | \
-                  QtWidgets.QDialogButtonBox.Cancel
+        buttons = buttons or [
+            QtWidgets.QDialogButtonBox.Yes,
+            QtWidgets.QDialogButtonBox.No,
+            QtWidgets.QDialogButtonBox.Cancel
+        ]
 
         return studiolibrary.widgets.MessageBox.question(self, title, text, buttons=buttons)
 
@@ -2499,24 +2526,6 @@ class LibraryWindow(QtWidgets.QWidget):
     # Support for locking via regex
     # -----------------------------------------------------------------------
 
-    def updateCreateItemButton(self):
-        """
-        Update the plus icon depending on if the library widget is locked.
-
-        :rtype: None
-        """
-        action = self.menuBarWidget().findAction("New Item")
-
-        if self.isLocked():
-            icon = studiolibrary.resource.icon("lock")
-            action.setEnabled(False)
-        else:
-            icon = studiolibrary.resource.icon("add_28")
-            action.setEnabled(True)
-
-        icon.setColor(self.iconColor())
-        action.setIcon(icon)
-
     def isLocked(self):
         """
         Return lock state of the library.
@@ -2537,7 +2546,7 @@ class LibraryWindow(QtWidgets.QWidget):
         self.sidebarWidget().setLocked(value)
         self.itemsWidget().setLocked(value)
 
-        self.updateCreateItemButton()
+        self.updateMenuBar()
         self.updateWindowTitle()
 
         self.lockChanged.emit(value)
@@ -2689,37 +2698,43 @@ class LibraryWindow(QtWidgets.QWidget):
         self.setPreviewWidgetVisible(compact)
         self.setFoldersWidgetVisible(compact)
 
-    def updateViewButton(self):
-        """
-        Update the icon for the view action.
+    def updateMenuBar(self):
 
-        :rtype: None
-        """
-        compact = self.isCompactView()
-        action = self.menuBarWidget().findAction("View")
+        # Update view icon
+        action = self.menuBarWidget().findAction("New Item")
 
-        if not compact:
-            icon = studiolibrary.resource.icon("view_all")
+        if self.isLocked():
+            icon = studiolibrary.resource.icon("lock")
+            action.setEnabled(False)
         else:
-            icon = studiolibrary.resource.icon("view_compact")
+            icon = studiolibrary.resource.icon("plus-large")
+            action.setEnabled(True)
 
-        icon.setColor(self.iconColor())
         action.setIcon(icon)
 
-    def updateFiltersButton(self):
-        """Update the icon for the filters menu."""
+        # Update view icon
+        action = self.menuBarWidget().findAction("View")
 
+        if not self.isCompactView():
+            icon = studiolibrary.resource.icon("eye")
+        else:
+            icon = studiolibrary.resource.icon("eye-slash")
+
+        action.setIcon(icon)
+
+        # Update filters icon
         action = self.menuBarWidget().findAction("Filters")
 
         if self._filterByMenu.isActive():
             icon = studiolibrary.resource.icon("filter")
-            icon.setColor(self.iconColor())
-            icon.setBadge(18, 1, 9, 9, color=self.ICON_BADGE_COLOR)
+            action._badgeColor = self.ICON_BADGE_COLOR
+            action._badgeEnabled = True
         else:
             icon = studiolibrary.resource.icon("filter")
-            icon.setColor(self.iconColor())
 
         action.setIcon(icon)
+
+        self.menuBarWidget().updateIconColor()
 
     def isRecursiveSearchEnabled(self):
         """
@@ -2739,20 +2754,17 @@ class LibraryWindow(QtWidgets.QWidget):
         """
         self.sidebarWidget().setRecursive(value)
 
-    @staticmethod
-    def help():
-        """Open the help url from the config file in a web browser."""
-        webbrowser.open(studiolibrary.config.get("helpUrl"))
+    def openHelpUrl(self):
+        """Open the help URL in a web browse."""
+        webbrowser.open(self._updateInfo.get("helpUrl", "https://www.studiolibrary.com"))
 
-    @staticmethod
-    def reportIssue():
-        """Open the report issue url and submit a new issue."""
-        webbrowser.open(studiolibrary.config.get("reportIssueUrl"))
+    def openReportUrl(self):
+        """Open the report URL in a web browse."""
+        webbrowser.open(self._updateInfo.get("reportUrl", "https://www.studiolibrary.com"))
 
-    @staticmethod
-    def openReleasesUrl():
-        """Open the help url from the config file in a web browser."""
-        webbrowser.open(studiolibrary.config.get("releasesUrl"))
+    def openReleasesUrl(self):
+        """Open the releases URL in a web browser."""
+        webbrowser.open(self._updateInfo.get("releasesUrl", "https://www.studiolibrary.com"))
 
     def setDebugMode(self, value):
         """
@@ -2760,6 +2772,13 @@ class LibraryWindow(QtWidgets.QWidget):
         """
         self._isDebug = value
         studiolibrary.setDebugMode(value)
+
+    def setCheckForUpdateEnabled(self, value):
+        self._checkForUpdateEnabled = value
+        self.checkForUpdate()
+
+    def isCheckForUpdateEnabled(self):
+        return self._checkForUpdateEnabled
 
     def isDebug(self):
         """

@@ -25,7 +25,7 @@ STYLE = """
 QToolBar {
     border: 0px solid black; 
     border-radius:2px;
-    background-color: rgb(0,0,0,100);
+    background-color: rgba(0,0,0,100);
 }
 
 QToolButton {
@@ -38,8 +38,10 @@ class ImageSequenceWidget(QtWidgets.QToolButton):
 
     DEFAULT_PLAYHEAD_COLOR = QtGui.QColor(255, 255, 255, 220)
 
-    def __init__(self,  *args):
-        QtWidgets.QToolButton.__init__(self, *args)
+    def __init__(self,  parent=None, theme=None):
+        QtWidgets.QToolButton.__init__(self, parent)
+
+        self._theme = theme
 
         self._imageSequence = ImageSequence("")
         self._imageSequence.frameChanged.connect(self._frameChanged)
@@ -113,9 +115,9 @@ class ImageSequenceWidget(QtWidgets.QToolButton):
         """
         icon = studioqt.Icon.fa(
             path,
-            color="rgb(250,250,250,160)",
-            color_active="rgb(250,250,250,250)",
-            color_disabled="rgb(0,0,0,20)"
+            color="rgba(250,250,250,160)",
+            color_active="rgba(250,250,250,250)",
+            color_disabled="rgba(0,0,0,20)"
         )
 
         action = QtWidgets.QAction(icon, text, self._toolBar)
@@ -152,23 +154,26 @@ class ImageSequenceWidget(QtWidgets.QToolButton):
 
     def updateToolBar(self):
         """Update the tool bar size depending on the number of actions."""
+        dpi = 1.0
+        if self._theme:
+            dpi = self._theme.dpi()
 
-        self._toolBar.setIconSize(QtCore.QSize(16, 16))
+        self._toolBar.setIconSize(QtCore.QSize(16*dpi, 16*dpi))
 
         count = (len(self.actions())) - 3
-        width = (26 * count)
+        width = ((26*dpi) * count)
 
-        self._toolBar.setGeometry(0, 0, width, 25)
+        self._toolBar.setGeometry(0, 0, width, 25*dpi)
 
         x = self.rect().center().x() - (self._toolBar.width()/2)
-        y = self.height() - self._toolBar.height() - 12
+        y = self.height() - self._toolBar.height() - (12*dpi)
         width = self._toolBar.width()
 
         self._toolBar.setGeometry(x, y,  width,  self._toolBar.height())
 
     def isControlModifier(self):
         """
-        Check if the the control modifier is active.
+        Check if the control modifier is active.
         
         :rtype: bool
         """

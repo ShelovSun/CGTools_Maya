@@ -22,6 +22,8 @@ import studioqt
 from . import groupboxwidget
 from . import colorpicker
 from . import iconpicker
+from . import sequencewidget
+
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ class FieldWidget(QtWidgets.QFrame):
         self._menuButton = None
         self._actionResult = None
         self._formWidget = None
+        self._validateEnabled = True
 
         if formWidget:
             self.setFormWidget(formWidget)
@@ -72,12 +75,13 @@ class FieldWidget(QtWidgets.QFrame):
         direction = self._data.get("layout", self.DefaultLayout)
 
         if direction == "vertical":
-            layout = QtWidgets.QVBoxLayout(self)
+            layout = QtWidgets.QVBoxLayout()
         else:
-            layout = QtWidgets.QHBoxLayout(self)
+            layout = QtWidgets.QHBoxLayout()
 
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        self.setLayout(layout)
 
         self.setContentsMargins(0, 0, 0, 0)
 
@@ -90,7 +94,7 @@ class FieldWidget(QtWidgets.QFrame):
 
         layout.addWidget(self._label)
 
-        self._layout2 = QtWidgets.QHBoxLayout(self)
+        self._layout2 = QtWidgets.QHBoxLayout()
         layout.addLayout(self._layout2)
 
         if direction == "vertical":
@@ -101,6 +105,13 @@ class FieldWidget(QtWidgets.QFrame):
         widget = self.createWidget()
         if widget:
             self.setWidget(widget)
+
+
+    def setValidateEnabled(self, v):
+        self._validateEnabled = v
+
+    def validateEnabled(self):
+        return self._validateEnabled
 
     def name(self):
         """
@@ -448,7 +459,7 @@ class FieldWidget(QtWidgets.QFrame):
         
         :type widget: QtWidgets.QWidget
         """
-        widgetLayout = QtWidgets.QHBoxLayout(self)
+        widgetLayout = QtWidgets.QHBoxLayout()
         widgetLayout.setContentsMargins(0, 0, 0, 0)
         widgetLayout.setSpacing(0)
 
@@ -472,7 +483,7 @@ class FieldWidget(QtWidgets.QFrame):
         widgetLayout.addWidget(self._widget)
         widgetLayout.addWidget(self._menuButton)
 
-        layout = QtWidgets.QVBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
@@ -561,6 +572,7 @@ class GroupFieldWidget(FieldWidget):
         widget.toggled.connect(self.setValue)
 
         self.setWidget(widget)
+        self.setValidateEnabled(False)
 
         self.label().hide()
 
@@ -648,6 +660,7 @@ class LabelFieldWidget(FieldWidget):
         widget.setAlignment(QtCore.Qt.AlignVCenter)
         widget.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         self.setWidget(widget)
+        self.setValidateEnabled(False)
 
     def value(self):
         """
@@ -887,7 +900,7 @@ class RangeFieldWidget(FieldWidget):
         super(RangeFieldWidget, self).__init__(*args, **kwargs)
 
         widget = QtWidgets.QFrame(self)
-        layout = QtWidgets.QHBoxLayout(self)
+        layout = QtWidgets.QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         widget.setLayout(layout)
@@ -937,7 +950,7 @@ class StringDoubleFieldWidget(FieldWidget):
         super(StringDoubleFieldWidget, self).__init__(*args, **kwargs)
 
         widget = QtWidgets.QFrame(self)
-        layout = QtWidgets.QHBoxLayout(self)
+        layout = QtWidgets.QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         widget.setLayout(layout)
@@ -1205,7 +1218,7 @@ class ButtonGroupFieldWidget(FieldWidget):
         items = self.data().get('items')
 
         widget = QtWidgets.QFrame()
-        layout = QtWidgets.QHBoxLayout(widget)
+        layout = QtWidgets.QHBoxLayout()
         layout.setSpacing(0)
         layout.setContentsMargins(0, 0, 0, 0)
         widget.setLayout(layout)
@@ -1397,9 +1410,7 @@ class IconPickerFieldWidget(FieldWidget):
     def __init__(self, *args, **kwargs):
         super(IconPickerFieldWidget, self).__init__(*args, **kwargs)
 
-        self._value = "rgb(100,100,100)"
-
-        widget = iconpicker.IconPickerWidget()
+        widget = iconpicker.IconPickerWidget(self)
         widget.setObjectName('widget')
         widget.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
@@ -1407,18 +1418,6 @@ class IconPickerFieldWidget(FieldWidget):
         )
         widget.iconChanged.connect(self._iconChanged)
         self.setWidget(widget)
-
-    def setData(self, data):
-        """
-        Overriding this method to add support for a "colors" key.
-
-        :type data: dict
-        """
-        colors = data.get("colors")
-        if colors:
-            self.widget().setColors(colors)
-
-        super(IconPickerFieldWidget, self).setData(data)
 
     def _iconChanged(self, icon):
         """

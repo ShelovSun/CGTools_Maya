@@ -68,6 +68,7 @@ class AttributeError(Exception):
 
 class Attribute(object):
 
+
     @classmethod
     def listAttr(cls, name, **kwargs):
         """
@@ -160,6 +161,21 @@ class Attribute(object):
         :rtype: bool
         """
         return self.type() in VALID_ATTRIBUTE_TYPES
+
+    def isProxy(self):
+        """
+       Return true if the attribute is a proxy
+
+       :rtype: bool
+       """
+        if not maya.cmds.addAttr(self.fullname(), query=True, exists=True):
+            return False
+
+        return maya.cmds.addAttr(self.fullname(), query=True, usedAsProxy=True)
+
+    def delete(self):
+        """Delete the attribute"""
+        maya.cmds.deleteAttr(self.fullname())
 
     def exists(self):
         """
@@ -460,23 +476,22 @@ class Attribute(object):
 
         :rtype: str | None
         """
-        result = None
+        plug = self.fullname()
 
-        if self.exists():
+        if maya.cmds.objExists(plug):
 
-            n = self.listConnections(plugs=True, destination=False)
+            isDynamic = maya.cmds.listAttr(plug, userDefined=True)
+
+            if isDynamic and maya.cmds.addAttr(plug, query=True, usedAsProxy=True):
+                plug = maya.cmds.listConnections(plug, plugs=True, destination=False)
+
+            n = maya.cmds.listConnections(plug, plugs=True, destination=False)
+
+            if n and "character" in maya.cmds.nodeType(n):
+                n = maya.cmds.listConnections(n, plugs=True, destination=False)
 
             if n and "animCurve" in maya.cmds.nodeType(n):
-                result = n
-
-            elif n and "character" in maya.cmds.nodeType(n):
-                n = maya.cmds.listConnections(n, plugs=True,
-                                              destination=False)
-                if n and "animCurve" in maya.cmds.nodeType(n):
-                    result = n
-
-            if result:
-                return result[0].split(".")[0]
+                return n[0].split(".")[0]
 
     def isConnected(self, ignoreConnections=None):
         """

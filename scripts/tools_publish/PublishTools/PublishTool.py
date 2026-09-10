@@ -6,6 +6,7 @@
 import maya.OpenMayaUI as omui
 import maya.cmds as cmds
 import maya.mel as mel
+import glob
 import os
 import shutil
 
@@ -39,6 +40,76 @@ from widgets import imagesequence
 def maya_main_window():
     main_window_ptr = omui.MQtUtil.mainWindow()
     return wrapInstance(int(main_window_ptr), QtWidgets.QMainWindow)
+
+
+class FlowLayout(QtWidgets.QLayout):
+    """简化流式布局：从左到右排列，换行时自上而下，宽度自适应 viewport。"""
+
+    def __init__(self, parent=None, hSpacing=8, vSpacing=8):
+        super(FlowLayout, self).__init__(parent)
+        self.m_hSpace = hSpacing
+        self.m_vSpace = vSpacing
+        self.itemList = []
+        self.setContentsMargins(4, 4, 4, 4)
+
+    def addItem(self, item):
+        self.itemList.append(item)
+
+    def count(self):
+        return len(self.itemList)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self.itemList):
+            return self.itemList[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self.itemList):
+            return self.itemList.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return QtCore.Qt.Orientations(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self.doLayout(QtCore.QRect(0, 0, width, 0), True)
+
+    def setGeometry(self, rect):
+        super(FlowLayout, self).setGeometry(rect)
+        self.doLayout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QtCore.QSize()
+        for item in self.itemList:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        size += QtCore.QSize(margins.left() + margins.right(),
+                             margins.top() + margins.bottom())
+        return size
+
+    def doLayout(self, rect, testOnly):
+        x = rect.x()
+        y = rect.y()
+        lineHeight = 0
+        for item in self.itemList:
+            wid = item.widget()
+            nextX = x + item.sizeHint().width() + self.m_hSpace
+            if nextX - self.m_hSpace > rect.right() and lineHeight > 0:
+                x = rect.x()
+                y = y + lineHeight + self.m_vSpace
+                nextX = x + item.sizeHint().width() + self.m_hSpace
+                lineHeight = 0
+            if not testOnly:
+                item.setGeometry(QtCore.QRect(QtCore.QPoint(x, y), item.sizeHint()))
+            x = nextX
+            lineHeight = max(lineHeight, item.sizeHint().height())
+        return y + lineHeight - rect.y()
 
 
 class MyThread(QtCore.QThread):
@@ -526,6 +597,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.port_path = ''
         self.gpu_file_path = ''
         self.proxy_file_path = ''
+        self._surface_cells = []   # [(name, check, preview_label, zh_edit), ...]
+        self._surface_meta = {}    # {皮名: {"zh_name": ...}}
 
         self.init_ui_thread = MyThread()
         self.init_ui_thread.signal.connect(self.init_ui)
@@ -570,9 +643,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         sty = "background-color: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 rgba(" \
               "35, 35, 35, 100),  stop:1 rgba(35, 35, 35, 255)); "
         self.ui.Preview_label.setStyleSheet(sty)
-        self.ui.Preview_label_rig.setStyleSheet(sty)
         self.ui.Preview_label_sc.setStyleSheet(sty)
         self.ui.Preview_label_ac.setStyleSheet(sty)
+
+        # Rig 主资产区预览图样式（如需修改主资产区整体外观，可在这里给 frame_3 / frame_4 加 setStyleSheet）
+        self.ui.Preview_label_rig.setStyleSheet(
+            "QLabel { background-color: rgba(0,0,0,0.35);"
+            " border: 1px dashed rgba(255,255,255,0.35); border-radius: 4px; }")
+        self.ui.Preview_label_rig.setScaledContents(True)
 
         self.playerSet()
 
@@ -589,6 +667,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
         # Action发布：移除.ui中写死的单组表单，改用代码动态生成的组件容器
         self._setup_action_page()
+        # 构建 Rig 标签页的换皮面板
+        self._build_rig_surface_panel()
 
     def _setup_action_page(self):
         """ 把Action页右侧写死的表单（项目/资产名/动作名/帧数范围/Start-End）去掉，
@@ -684,6 +764,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 # self.ui.Yes_bttn.setEnabled(True)
                 #
                 self.renderIcon(self.ui.Preview_label_rig)
+                self.refresh_surfaces()
             else:
                 self.ui.Yes_bttn.setEnabled(False)
 
@@ -721,6 +802,294 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             # 第2步：按勾选的Reference个数，从上往下生成对应数量的发布组件
             self.build_action_items()
             self.renderIcon_ac()
+
+    # ------------------------------------------------------------------ 换皮（Surface）
+    def _build_rig_surface_panel(self):
+        """在 Rig 标签页构建换皮面板（插在 frame_3 下方）"""
+        rig_tab = self.ui.rig_tab
+        layout = rig_tab.layout()  # verticalLayout_6
+        self.surface_panel = QtWidgets.QWidget()
+        self.surface_panel.setVisible(False)
+        sv = QtWidgets.QVBoxLayout(self.surface_panel)
+        sv.setContentsMargins(4, 2, 4, 2)
+        sv.setSpacing(2)
+
+        head = QtWidgets.QHBoxLayout()
+        head.setSpacing(6)
+        lbl = QtWidgets.QLabel(u"换皮 (Surface)：")
+        lbl.setStyleSheet("color: #e8e8f0; font-weight: bold;")
+        self.surface_title_lbl = lbl
+        head.addWidget(lbl)
+        head.addStretch(1)
+        self.surface_all_bttn = QtWidgets.QPushButton(u"全选")
+        self.surface_all_bttn.setFixedHeight(22)
+        self.surface_all_bttn.clicked.connect(lambda: self._set_surface_checks(True))
+        head.addWidget(self.surface_all_bttn)
+        self.surface_clear_bttn = QtWidgets.QPushButton(u"全不选")
+        self.surface_clear_bttn.setFixedHeight(22)
+        self.surface_clear_bttn.clicked.connect(lambda: self._set_surface_checks(False))
+        head.addWidget(self.surface_clear_bttn)
+        sv.addLayout(head)
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setMaximumHeight(300)
+        inner = QtWidgets.QWidget()
+        self.surface_cells_layout = FlowLayout(inner, hSpacing=8, vSpacing=8)
+        scroll.setWidget(inner)
+        sv.addWidget(scroll)
+
+        # 把 surface_panel 插到 verticalLayout_3 的 verticalSpacer_3 之前，
+        # 避免 spacer 扩张导致 frame_3 与换皮面板之间出现大段空白。
+        vlayout3 = None
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item.layout() is not None:
+                vlayout3 = item.layout()
+                break
+        if vlayout3 is not None:
+            vlayout3.insertWidget(vlayout3.count() - 1, self.surface_panel)
+        else:
+            layout.addWidget(self.surface_panel)
+
+    def scan_surfaces(self):
+        """扫描场景中的皮肤列表。
+        新资产层级：Geometry -> {asset}_{proj}_AST -> 各皮肤组
+        返回皮肤名列表（>=2 个皮才视为换皮资产）
+        """
+        def _children(node):
+            return cmds.listRelatives(node, allDescendents=False,
+                                      fullPath=False, type="transform") or []
+
+        ast_name = ""
+        groups = []
+        try:
+            asts = cmds.ls("*_*_AST", type="transform") or []
+            if len(asts) == 1:
+                asts = [a.split(":")[-1] for a in asts]
+                ast_name = asts[0]
+                groups = _children(asts[0])
+        except Exception:
+            groups = []
+        if not groups:
+            try:
+                geo = (cmds.ls("Geometry", type="transform")
+                       or cmds.ls("*:Geometry", type="transform") or [None])[0]
+                if geo:
+                    geo_children = _children(geo)
+                    ast_children = [c for c in geo_children if c.endswith("_AST")]
+                    if len(ast_children) == 1:
+                        ast_name = ast_children[0].split(":")[-1]
+                        groups = _children(ast_children[0])
+                    else:
+                        groups = geo_children
+            except Exception:
+                groups = []
+        exclude = {ast_name, "common"} if ast_name else {"common"}
+        surfaces = [g.split(":")[-1] for g in groups if g.split(":")[-1] not in exclude]
+        return surfaces
+
+    def refresh_surfaces(self):
+        """刷新 Rig 标签页的皮肤面板"""
+        surfaces = self.scan_surfaces()
+        if len(surfaces) < 2:
+            self.surface_panel.setVisible(False)
+            self._surface_cells = []
+            return
+
+        self.surface_title_lbl.setText(
+            u"换皮 (Surface)：找到 %d 个皮肤，勾选发布" % len(surfaces))
+
+        lay = self.surface_cells_layout
+        while lay.count():
+            item = lay.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._surface_cells = []
+
+        meta = dict(getattr(self, "_surface_meta", {}))
+        for s in surfaces:
+            self._make_surface_cell(s, meta.get(s, {}).get("zh_name", ""))
+
+        self.surface_panel.setVisible(True)
+
+    def _make_surface_cell(self, s, zh_default):
+        """构建一个皮肤格子（固定大小，不随窗体拉伸）"""
+        cell = QtWidgets.QFrame()
+        cell.setFixedSize(180, 240)
+        cell.setStyleSheet(
+            "QFrame { background: rgba(47,127,184,0.10);"
+            " border: 1px solid rgba(255,255,255,0.18); border-radius: 4px; }")
+        cv = QtWidgets.QVBoxLayout(cell)
+        cv.setContentsMargins(4, 4, 4, 4)
+        cv.setSpacing(3)
+
+        top = QtWidgets.QHBoxLayout()
+        chk = QtWidgets.QCheckBox(u"发布")
+        chk.setChecked(True)
+        top.addWidget(chk)
+        top.addStretch(1)
+
+        shot_bttn = QtWidgets.QPushButton()
+        shot_bttn.setFixedSize(22, 22)
+        shot_bttn.setIconSize(QtCore.QSize(18, 18))
+        shot_bttn.setIcon(QtGui.QIcon("%s/icon/shot.png" % self.scriptsPath))
+        shot_bttn.setFlat(True)
+        shot_bttn.setToolTip(u"视口截图")
+        shot_bttn.clicked.connect(lambda _=False, ss=s: self._make_surface_icon(ss))
+        top.addWidget(shot_bttn)
+
+        box_bttn = QtWidgets.QPushButton()
+        box_bttn.setFixedSize(22, 22)
+        box_bttn.setIconSize(QtCore.QSize(18, 18))
+        box_bttn.setIcon(QtGui.QIcon("%s/icon/capture.png" % self.scriptsPath))
+        box_bttn.setFlat(True)
+        box_bttn.setToolTip(u"框选截图")
+        box_bttn.clicked.connect(lambda _=False, ss=s: self._make_surface_icon_box(ss))
+        top.addWidget(box_bttn)
+        cv.addLayout(top)
+
+        preview_lab = QtWidgets.QLabel(u"（未截图）")
+        preview_lab.setFixedSize(160, 160)
+        preview_lab.setAlignment(QtCore.Qt.AlignCenter)
+        preview_lab.setScaledContents(True)
+        preview_lab.setStyleSheet(
+            "QLabel { background-color: rgba(0,0,0,0.35);"
+            " border: 1px dashed rgba(255,255,255,0.35); border-radius: 4px;"
+            " color: #9a9aa5; font-size: 9pt; }")
+        cv.addWidget(preview_lab)
+
+        lab_name = QtWidgets.QLabel(s)
+        lab_name.setAlignment(QtCore.Qt.AlignCenter)
+        lab_name.setStyleSheet("font-weight: bold; color: #e8e8f0; font-size: 10pt;")
+        cv.addWidget(lab_name, 0, QtCore.Qt.AlignHCenter)
+
+        zh_edit = QtWidgets.QLineEdit(zh_default)
+        zh_edit.setPlaceholderText(u"中文名")
+        zh_edit.setClearButtonEnabled(True)
+        zh_edit.editingFinished.connect(
+            lambda ed=zh_edit, ss=s: self._set_surface_meta(ss, "zh_name", ed.text().strip()))
+        cv.addWidget(zh_edit)
+
+        self.surface_cells_layout.addWidget(cell)
+        self._surface_cells.append((s, chk, preview_lab, zh_edit))
+        return cell
+
+    def _set_surface_meta(self, s, field, value):
+        meta = dict(getattr(self, "_surface_meta", {}))
+        meta.setdefault(s, {})[field] = value
+        self._surface_meta = meta
+
+    def selected_surfaces(self):
+        out = []
+        for name, chk, _lab, _ed in getattr(self, "_surface_cells", []):
+            if chk.isChecked():
+                out.append(name)
+        return out
+
+    def _set_surface_checks(self, checked):
+        for _name, chk, _lab, _ed in getattr(self, "_surface_cells", []):
+            chk.setChecked(checked)
+
+    def _capture_surface(self, surface):
+        """逐皮独立拍屏"""
+        try:
+            panels = cmds.getPanel(scriptType='modelPanel') or []
+            if not panels:
+                return None
+            snap_dir = self.Pub.makePath("%s/AssetsManagerIconTemp/surface" % os.environ.get("TEMP"))
+            if cmds.listRelatives(surface, ad=True, type="mesh"):
+                cmds.select(surface, replace=True)
+                cmds.viewFit(all=True)
+            cmds.playblast(frame=1, percent=100, quality=100, widthHeight=[512, 512],
+                           format='image', compression='png',
+                           showOrnaments=False, viewer=False,
+                           completeFilename=True, forceOverwrite=True,
+                           filename="%s/snap_%s" % (snap_dir, surface))
+            cands = sorted(glob.glob(os.path.join(snap_dir, "snap_%s*.png" % surface)),
+                           key=os.path.getmtime)
+            if not cands:
+                return None
+            return cands[-1]
+        except Exception:
+            return None
+
+    def _make_surface_icon(self, s):
+        """为单个皮肤拍摄视口截图并保存"""
+        projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_rig()
+        if not (projectName and characterName and publishType) or publishType == u"**":
+            self.logMsg(None, u"请先选择发布类型再截图" , "failed")
+            return
+        snap = self._capture_surface(s)
+        if not snap:
+            self.logMsg(None, u"Icon %s 拍摄失败：无活动模型面板" % s, "failed")
+            return
+        try:
+            icon_dir = "%s/%s" % (path, self.projectSetting()['iconFolder'])
+            self.Pub.publish_icon(snap, icon_dir, "%s_%s" % (characterName, s))
+            icon_path = "%s/%s_%s.png" % (icon_dir, characterName, s)
+            self._set_cell_preview(s, icon_path)
+            self.logMsg(None, u"Icon %s 已截取" % s, "succeed")
+        except Exception as e:
+            self.logMsg(None, u"Icon %s 失败：%s" % (s, e), "failed")
+
+    def _make_surface_icon_box(self, s):
+        """为单个皮肤框选截图"""
+        projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_rig()
+        if not (projectName and characterName and publishType) or publishType == u"**":
+            self.logMsg(None, u"请先选择发布类型再截图" , "failed")
+            return
+        try:
+            icon_dir = "%s/%s" % (path, self.projectSetting()['iconFolder'])
+            save_path = "%s/%s_%s.png" % (icon_dir, characterName, s)
+            self.Pub.makePath(icon_dir)
+
+            def _done(pixmap):
+                try:
+                    pixmap.save(save_path, "PNG")
+                    self._set_cell_preview(s, save_path)
+                    self.logMsg(None, u"Icon %s 已框选截取" % s, "succeed")
+                except Exception as e:
+                    self.logMsg(None, u"Icon %s 失败：%s" % (s, e), "failed")
+
+            capture.show_capture_screen(self, save_path=save_path, on_done=_done)
+        except Exception as e:
+            self.logMsg(None, u"Icon %s 失败：%s" % (s, e), "failed")
+
+    def _set_cell_preview(self, s, icon_path):
+        for name, _chk, lab, _ed in getattr(self, "_surface_cells", []):
+            if name != s:
+                continue
+            try:
+                pix = QtGui.QPixmap(icon_path)
+                if not pix.isNull():
+                    lab.setPixmap(pix.scaled(lab.size(), QtCore.Qt.KeepAspectRatio,
+                                             QtCore.Qt.SmoothTransformation))
+                    lab.setToolTip(u"%s 已截: %s" % (s, icon_path))
+                else:
+                    lab.setText(u"（未截图）")
+                return
+            except Exception:
+                return
+
+    def _publish_surface_icons(self, path, characterName, surfaces):
+        """发布时逐皮 icon：未截图且有面板则自动补拍"""
+        icon_dir = "%s/%s" % (path, self.projectSetting()['iconFolder'])
+        try:
+            has_panel = bool(cmds.getPanel(scriptType='modelPanel') or [])
+        except Exception:
+            has_panel = False
+        for s in surfaces:
+            icon_path = "%s/%s_%s.png" % (icon_dir, characterName, s)
+            if os.path.isfile(icon_path):
+                self.logMsg(None, u"Icon %s 已有截图，保留" % s, "succeed")
+                continue
+            if not has_panel:
+                self.logMsg(None, u"Icon %s 未截图且无活动模型面板" % s, "failed")
+                continue
+            self._make_surface_icon(s)
 
     def closeEvent(self, event):
         try:
@@ -887,6 +1256,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.ui.name_lineEdit_rig.setText(characterName)
             self.update_type(projectName, 'Assets', self.ui.publishType_comb_rig)
             self.loadNoteHistory('asset', projectName, characterName)
+            self.refresh_surfaces()
         else:
             QtWidgets.QMessageBox.warning(self, 'Warning', u'找不到_AST或_AST不唯一,请检查!!!')
             return False
@@ -1544,14 +1914,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
                 self.logMsg(logCGTW, u"备注发布失败：%s" % e, "failed")
         self.ui.log_progressBar.setValue(15)
         ''' =============== 不存在icon则拍屏icon ========================================= '''
+        surfaces = self.selected_surfaces()
         if self.ui.icon_cBox_rig.isChecked():
             try:
                 src = str('%s/snapshot/thumbnail.png' % self.tempPath)
                 dst = str('%s/%s' % (path, self.projectSetting()['iconFolder']))
                 Pub.publish_icon(src, dst, characterName)
-                # icon_path = Pub.snapshot(str('%s/%s' % (path, self.projectSetting()['iconFolder'])), characterName)
-                # self.createImageForCGT('asset', projectName, characterName, icon_path)
-                # self.createTask(projectName, characterName, icon_path)
+                if surfaces:
+                    self._publish_surface_icons(path, characterName, surfaces)
                 self.logMsg(None, u"发布Icon成功", "succeed")
             except Exception as e:
                 self.logMsg(None, u"发布Icon失败:%s" % e, "failed")
@@ -1622,8 +1992,11 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         ''' ================ fbx发布 ============================================================ '''
         if self.ui.fbx_cBox_2.isChecked():
             try:
-                self.rig_fbx_export(path, characterName)
-                self.logMsg(None, u"fbx已发布", "succeed")
+                self.rig_fbx_export(path, characterName, surfaces=surfaces)
+                if surfaces:
+                    self.logMsg(None, u"fbx已发布 %d 个皮: %s" % (len(surfaces), u"、".join(surfaces)), "succeed")
+                else:
+                    self.logMsg(None, u"fbx已发布", "succeed")
             except Exception as e:
                 self.logMsg(None, u"fbx发布失败:%s" % e, "failed")
         self.ui.log_progressBar.setValue(85)
@@ -3080,12 +3453,70 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             cmds.warning('Can not find mod/port/GPU')
             raise Exception('Can not find mod/port/GPU')
 
-    def rig_fbx_export(self, path, characterName):
-        """发布绑定fbx"""
+    def rig_fbx_export(self, path, characterName, surfaces=None):
+        """发布绑定fbx
+        surfaces: 换皮资产勾选的皮肤列表（>=2 皮时逐皮导出 {asset}_{skin}.fbx，
+                  并追加导出主 {asset}.fbx）；空/None = 走原自动检测逻辑
+        """
         cmds.select(clear=True)
         fbxFolderPath = '%s/%s' % (path, 'FBX')
         self.Pub.makePath(fbxFolderPath)
-        self.Pub.createHistory(fbxFolderPath)
+
+        # 换皮 part 保护：只发布一部分皮时，把"存在但本次未勾选"的皮 FBX
+        # 临时移出 -> createHistory -> 移回
+        protected = []
+        tmp_dir = "%s.%s_tmp" % (fbxFolderPath, "_unselected")
+        try:
+            if surfaces:
+                scanned = self.scan_surfaces()
+                unselected = [s for s in scanned if s not in surfaces]
+                if unselected:
+                    self.Pub.makePath(tmp_dir)
+                    for s in unselected:
+                        src = "%s/%s_%s.fbx" % (fbxFolderPath, characterName, s)
+                        if os.path.isfile(src):
+                            dst = "%s/%s_%s.fbx" % (tmp_dir, characterName, s)
+                            try:
+                                os.rename(src, dst)
+                                protected.append((src, dst))
+                            except OSError:
+                                pass
+                self.Pub.createHistory(fbxFolderPath)
+            else:
+                self.Pub.createHistory(fbxFolderPath)
+        finally:
+            try:
+                for src, dst in protected:
+                    if os.path.isfile(dst):
+                        os.rename(dst, src)
+                if os.path.isdir(tmp_dir):
+                    os.rmdir(tmp_dir)
+            except Exception:
+                pass
+
+        if surfaces:
+            for s in surfaces:
+                cmds.select(s)
+                if cmds.objExists("common"):
+                    cmds.select("common", add=True)
+                if cmds.objExists("DeformationSystem"):
+                    cmds.select("DeformationSystem", add=True)
+                fbxPath = '%s/%s_%s.fbx' % (fbxFolderPath, characterName, s)
+                self.Pub.exportFBX(False, 1, 200, fbxPath)
+            # 主 FBX（库预览 3D 旋转用）：Geometry 全量 + DeformationSystem
+            try:
+                cmds.select(clear=True)
+                if cmds.objExists("Geometry"):
+                    cmds.select("Geometry")
+                if cmds.objExists("DeformationSystem"):
+                    cmds.select("DeformationSystem", add=True)
+                fbxPath = '%s/%s.fbx' % (fbxFolderPath, characterName)
+                self.Pub.exportFBX(False, 1, 200, fbxPath)
+            except Exception:
+                pass
+            return
+
+        # 原逻辑（无 surfaces 参数或空列表）
         geometry_list = cmds.listRelatives("Geometry", allDescendents=False, fullPath=False)
         if len(geometry_list) == 1 and geometry_list[0].endswith("_AST"):
             geo_list = cmds.listRelatives(geometry_list[0], allDescendents=False, fullPath=False)

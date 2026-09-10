@@ -274,10 +274,12 @@ from PySide2 import QtWidgets, QtGui, QtCore
 
 
 class ToolBar(QtWidgets.QWidget):
-    def __init__(self, parent, rect, screenshot):
+    def __init__(self, parent, rect, screenshot, save_path=None, on_done=None):
         super().__init__(parent)
         self.screenshot = screenshot
         self.parent = parent
+        self.save_path = save_path
+        self.on_done = on_done
         self.setWindowFlags(QtCore.Qt.Tool | QtCore.Qt.FramelessWindowHint)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
 
@@ -321,20 +323,28 @@ class ToolBar(QtWidgets.QWidget):
 
     def ok_do_it(self):
         """ 确定截图 """
-        filename = os.path.join(self.localIconPath, 'thumbnail.png')
+        filename = self.save_path or os.path.join(self.localIconPath, 'thumbnail.png')
         succeed = self.screenshot.save(filename, "PNG")
         if succeed:
-            self.parent.send_back()
+            if self.on_done:
+                try:
+                    self.on_done(self.screenshot)
+                except Exception:
+                    pass
+            else:
+                self.parent.send_back()
             self.close_parent()
 
 
 class ScreenShot(QtWidgets.QWidget):
     active_instance = None
 
-    def __init__(self, screen, parent):
+    def __init__(self, screen, parent, save_path=None, on_done=None):
         super().__init__()
         self.screen = screen
         self.parent = parent
+        self.save_path = save_path
+        self.on_done = on_done
         # print("geometry:", screen.geometry())
         self.setGeometry(screen.geometry())
         self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint | QtCore.Qt.FramelessWindowHint)
@@ -505,7 +515,9 @@ class ScreenShot(QtWidgets.QWidget):
                     screenshot = self.fullscreen.copy(rect)
                     if self.toolbar:
                         self.toolbar.close()
-                    self.toolbar = ToolBar(self, rect, screenshot)
+                    self.toolbar = ToolBar(self, rect, screenshot,
+                                           save_path=getattr(self, 'save_path', None),
+                                           on_done=getattr(self, 'on_done', None))
             self.dragging_handle = None
             self.moving_rect = False
             self.update()
@@ -519,7 +531,7 @@ class ScreenShot(QtWidgets.QWidget):
                 self.toolbar.ok_do_it()
 
 
-def show_capture_screen(parent):
+def show_capture_screen(parent, save_path=None, on_done=None):
 
     app = QtWidgets.QApplication.instance()
     owns_app = False
@@ -531,7 +543,7 @@ def show_capture_screen(parent):
     for screen in app.screens():
         print("screen:", screen)
         # screen = QtGui.QGuiApplication.primaryScreen()
-        ss = ScreenShot(screen, parent)
+        ss = ScreenShot(screen, parent, save_path=save_path, on_done=on_done)
         ss.setParent(None)
         screenshots.append(ss)
         ss.show()

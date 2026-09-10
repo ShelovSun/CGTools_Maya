@@ -720,7 +720,7 @@ class Item(QtWidgets.QTreeWidgetItem):
         :type event: QtWidgets.QMouseEvent
         :rtype: None
         """
-        if event.button() == QtCore.Qt.MidButton:
+        if event.button() == QtCore.Qt.MiddleButton:
             if self.isSliderEnabled():
                 self.setSliderDown(True)
                 self._sliderPosition = event.pos()
@@ -733,8 +733,11 @@ class Item(QtWidgets.QTreeWidgetItem):
         :rtype: None
         """
         if self.isSliderDown():
-            self._sliderPosition = None
             self._sliderPreviousValue = self.sliderValue()
+            self._sliderPosition = None
+
+            self.treeWidget()._itemSliderReleased(self, self.sliderValue())
+            self.setSliderDown(False)
 
     def keyPressEvent(self, event):
         """
@@ -1180,7 +1183,7 @@ class Item(QtWidgets.QTreeWidgetItem):
         metrics = QtGui.QFontMetricsF(font)
 
         if text:
-            textWidth = metrics.width(text)
+            textWidth = metrics.boundingRect(text).width()
         else:
             textWidth = 1
 
@@ -1244,13 +1247,14 @@ class Item(QtWidgets.QTreeWidgetItem):
 
         :param event: QtGui.QMouseEvent
         """
-        if self.isSliderDown():
+        if self.isSliderDown() and self.sliderPosition():
             value = (event.pos().x() - self.sliderPosition().x()) / 1.5
             value = math.ceil(value) + self.sliderPreviousValue()
-            try:
-                self.setSliderValue(value)
-            except Exception:
-                self.setSliderDown(False)
+            if value != self.sliderValue():
+                try:
+                    self.setSliderValue(value)
+                except Exception:
+                    self.setSliderDown(False)
 
     def resetSlider(self):
         """Reset the slider value to zero."""
@@ -1281,12 +1285,21 @@ class Item(QtWidgets.QTreeWidgetItem):
         """
         if self.isSliderEnabled():
 
+            if self._sliderValue == None:
+                return
+
+            if value == self.sliderValue():
+                return
+
             self._sliderValue = value
 
             if self.PAINT_SLIDER:
                 self.update()
 
             self.sliderChanged.emit(value)
+
+            if self.treeWidget():
+                self.treeWidget()._itemSliderMoved(self, value)
 
             if self.PAINT_SLIDER:
                 self.update()

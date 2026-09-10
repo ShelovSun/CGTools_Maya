@@ -156,8 +156,8 @@ def clampRange(srcTime, dstTime):
     dstStart, dstEnd = dstTime
 
     if srcStart > dstEnd or srcEnd < dstStart:
-        msg = "The for_Maya and dst time do not overlap. " \
-              "Unable to clamp (for_Maya=%s, dest=%s)"
+        msg = "The src and dst time do not overlap. " \
+              "Unable to clamp (src=%s, dest=%s)"
         raise OutOfBoundsError(msg, srcTime, dstTime)
 
     if srcStart < dstStart:
@@ -272,6 +272,44 @@ def insertStaticKeyframe(curve, time):
         if startTime < previousFrame < endTime:
             maya.cmds.setKeyframe(curve, insert=True, time=(previousFrame, endTime))
             maya.cmds.keyTangent(curve, time=(previousFrame, previousFrame), ott="step")
+
+
+def duplicateNode(node, name):
+    """Duplicate the given node.
+
+    :param node: Maya path.
+    :type node: str
+    :param name: Name for the duplicated node.
+    :type name: str
+    :returns: Duplicated node names.
+    :rtype: list[str]
+    """
+    if maya.cmds.nodeType(node) in ["transform", "joint"]:
+        new = maya.cmds.duplicate(node, name=name, parentOnly=True)[0]
+    else:
+        # Please let us know if this logic is causing issues.
+        new = maya.cmds.duplicate(node, name=name)[0]
+        shapes = maya.cmds.listRelatives(new, shapes=True) or []
+        if shapes:
+            return [shapes[0], new]
+    return [new]
+
+
+def unproxyAttrs(node):
+
+    for attr in maya.cmds.listAttr(node, unlocked=True, keyable=True, userDefined=True) or []:
+
+        plug = "{}.{}".format(node, attr)
+        proxy = maya.cmds.addAttr(plug, q=True, usedAsProxy=True)
+
+        if not proxy:
+            continue
+
+        value = maya.cmds.getAttr(plug)
+        type_ = maya.cmds.getAttr(plug, type=True)
+
+        maya.cmds.deleteAttr(plug)
+        maya.cmds.addAttr(node, ln=attr, at=type_, dv=value, k=True)
 
 
 def loadAnims(
@@ -542,7 +580,10 @@ class Animation(mutils.Pose):
         """
         results = []
 
-        with open(path, "r", errors='ignore') as f:
+        if path.endswith(".mb"):
+            return
+
+        with open(path, "r") as f:
             for line in f.readlines():
                 if not line.startswith("select -ne"):
                     results.append(line)
@@ -550,30 +591,8 @@ class Animation(mutils.Pose):
                     results.append("// End")
                     break
 
-        with open(path, "w", errors='ignore') as f:
+        with open(path, "w") as f:
             f.writelines(results)
-
-    def _duplicate_node(self, node_path, duplicate_name):
-        """Duplicate given node.
-
-        :param node_path: Maya path.
-        :type node_path: str
-        :param duplicate_name: Name for the duplicated node.
-        :type duplicate_name: str
-        :returns: Duplicated node.
-        :rtype: str
-        """
-        if maya.cmds.nodeType(node_path) == "transform":
-            duplicated_node = maya.cmds.duplicate(node_path,
-                                                  name=duplicate_name,
-                                                  parentOnly=True)[0]
-        else:
-            duplicated_node = maya.cmds.duplicate(node_path,
-                                                  name=duplicate_name)[0]
-            duplicated_node = maya.cmds.listRelatives(duplicated_node,
-                                                      shapes=True)[0] or []
-
-        return duplicated_node
 
     @mutils.timing
     @mutils.unifyUndo
@@ -619,7 +638,7 @@ class Animation(mutils.Pose):
             raise AnimationTransferError(msg)
 
         # Check if animation exists
-        if mutils.getDurationFromNodes(objects or []) <= 0:
+        if mutils.getDurationFromNodes(objects or [], time=time) <= 0:
             msg = "No animation was found on the specified object/s! " \
                   "Please create a pose instead!"
             raise AnimationTransferError(msg)
@@ -642,20 +661,23 @@ class Animation(mutils.Pose):
 
             for name in objects:
                 if maya.cmds.copyKey(name, time=(start, end), includeUpperBound=False, option="keys"):
-                    dup_node = self._duplicate_node(name, "CURVE")
-                    # dup_node, = maya.cmds.duplicate(name, name="CURVE", parentOnly=True)
+                    dstNodes = duplicateNode(name, "CURVE")
+                    dstNode = dstNodes[0]
+                    deleteObjects.extend(dstNodes)
 
                     if not FIX_SAVE_ANIM_REFERENCE_LOCKED_ERROR:
-                        mutils.disconnectAll(dup_node)
+                        mutils.disconnectAll(dstNode)
 
-                    deleteObjects.append(dup_node)
-                    maya.cmds.pasteKey(dup_node)
+                    unproxyAttrs(dstNode)
 
-                    attrs = maya.cmds.listAttr(dup_node, unlocked=True, keyable=True) or []
+                    maya.cmds.pasteKey(dstNode)
+
+                    attrs = maya.cmds.listAttr(dstNode, unlocked=True, keyable=True) or []
                     attrs = list(set(attrs) - set(['translate', 'rotate', 'scale']))
 
                     for attr in attrs:
-                        dstAttr = mutils.Attribute(dup_node, attr)
+
+                        dstAttr = mutils.Attribute(dstNode, attr)
                         dstCurve = dstAttr.animCurve()
 
                         if dstCurve:
@@ -680,7 +702,7 @@ class Animation(mutils.Pose):
                             if maya.cmds.keyframe(dstCurve, query=True, time=(start, end), keyframeCount=True):
                                 self.setAnimCurve(name, attr, dstCurve)
                                 maya.cmds.cutKey(dstCurve, time=(MIN_TIME_LIMIT, start - 1))
-                                maya.cmds.cutKey(dstCurve, time=(end + 1, MAX_TIME_LIMIT))
+                                maya.cmds.cutKey(dstCurve, time=(end + 1, end + MAX_TIME_LIMIT))
                                 validCurves.append(dstCurve)
 
             fileName = "animation.ma"
@@ -695,8 +717,7 @@ class Animation(mutils.Pose):
                 maya.cmds.select(validCurves)
                 logger.info("Saving animation: %s" % mayaPath)
                 maya.cmds.file(mayaPath, force=True, options='v=0', type=fileType, uiConfiguration=False, exportSelected=True)
-                if fileType != "mayaBinary":
-                    self.cleanMayaFile(mayaPath)
+                self.cleanMayaFile(mayaPath)
 
         finally:
             if bakeConnected:
@@ -803,13 +824,12 @@ class Animation(mutils.Pose):
                         continue
 
                     dstAttr = mutils.Attribute(dstNode.name(), attr)
-                    srcCurve = self.animCurve(srcNode.name(), attr, withNamespace=True)
 
-                    # Skip if the destination attribute does not exists.
                     if not dstAttr.exists():
-                        logger.debug('Skipping attribute: The destination attribute "%s.%s" does not exist!' %
-                                     (dstAttr.name(), dstAttr.attr()))
+                        logger.debug('Skipping attribute: The destination attribute "%s" does not exist!' % dstAttr.fullname())
                         continue
+
+                    srcCurve = self.animCurve(srcNode.name(), attr, withNamespace=True)
 
                     if srcCurve:
                         dstAttr.setAnimCurve(

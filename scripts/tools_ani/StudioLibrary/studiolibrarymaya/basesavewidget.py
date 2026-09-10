@@ -90,11 +90,11 @@ class BaseSaveWidget(QtWidgets.QWidget):
         titleWidget.setObjectName("titleWidget")
         titleWidget.ui = UI()
 
-        vlayout = QtWidgets.QVBoxLayout(self)
+        vlayout = QtWidgets.QVBoxLayout()
         vlayout.setSpacing(0)
         vlayout.setContentsMargins(0, 0, 0, 0)
 
-        hlayout = QtWidgets.QHBoxLayout(self)
+        hlayout = QtWidgets.QHBoxLayout()
         hlayout.setSpacing(0)
         hlayout.setContentsMargins(0, 0, 0, 0)
 
@@ -120,7 +120,14 @@ class BaseSaveWidget(QtWidgets.QWidget):
 
     def createSequenceWidget(self):
         """Create a sequence widget to replace the static thumbnail widget."""
-        self.ui.thumbnailButton = studiolibrary.widgets.ImageSequenceWidget(self)
+        theme = None
+        if self.parent():
+            try:
+                theme = self.parent().theme()
+            except AttributeError as error:
+                logger.debug("Cannot find theme for parent.")
+
+        self.ui.thumbnailButton = studiolibrary.widgets.ImageSequenceWidget(self, theme=theme)
         self.ui.thumbnailButton.setObjectName("thumbnailButton")
         self.ui.thumbnailFrame.layout().insertWidget(0, self.ui.thumbnailButton)
         self.ui.thumbnailButton.clicked.connect(self.thumbnailCapture)
@@ -226,7 +233,7 @@ class BaseSaveWidget(QtWidgets.QWidget):
 
         :rtype: None
         """
-        import setsmenu
+        from studiolibrarymaya import setsmenu
 
         path = self.folderPath()
         position = QtGui.QCursor().pos()
@@ -322,7 +329,10 @@ class BaseSaveWidget(QtWidgets.QWidget):
 
         if duration > 100 and byFrame == 1:
 
-            buttons = QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+            buttons = [
+                QtWidgets.QDialogButtonBox.Ok,
+                QtWidgets.QDialogButtonBox.Cancel
+            ]
 
             result = studiolibrary.widgets.MessageBox.question(
                 self.libraryWindow(),
@@ -409,9 +419,12 @@ class BaseSaveWidget(QtWidgets.QWidget):
         title = "Create a thumbnail"
         text = "Would you like to capture a thumbnail?"
 
-        buttons = QtWidgets.QDialogButtonBox.Yes | \
-                  QtWidgets.QDialogButtonBox.Ignore | \
-                  QtWidgets.QDialogButtonBox.Cancel
+        buttons = [
+            QtWidgets.QDialogButtonBox.Yes,
+            QtWidgets.QDialogButtonBox.Ignore,
+            QtWidgets.QDialogButtonBox.Cancel
+        ]
+
 
         parent = self.item().libraryWindow()
         button = studiolibrary.widgets.MessageBox.question(

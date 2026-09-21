@@ -19,7 +19,8 @@ from my_vendor.Qt import QtGui
 from my_vendor.Qt import QtWidgets
 import shiboken2
 from shiboken2 import wrapInstance
-from sources import assetTools_optimized as assetTools  #, sceneTools, actionTools, ShotsManager_Maya, rigTools, modTools#, xgenTools#, list_items（scene 已并入 asset 资产库，Scene tab 移除）
+# Assets / Scenes 已合并到唯一正式实现 sources/assetTools.py。
+from sources import assetTools
 from utils import jsonHelper
 
 
@@ -91,6 +92,12 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         super(AssetsManagerUI, self).__init__(parent)
 
         self._isLoaded = False  # 首次 showEvent 恢复几何用（仿 StudioLibrary）
+        # Maya 在停靠/浮动切换时会连续触发原生窗口重挂；稍作合并，等新的
+        # workspaceControl 宿主稳定后再重建 QOpenGLWidget 绘图表面。
+        self._workspace_reparent_timer = QtCore.QTimer(self)
+        self._workspace_reparent_timer.setSingleShot(True)
+        self._workspace_reparent_timer.setInterval(80)
+        self._workspace_reparent_timer.timeout.connect(self._recoverAfterWorkspaceReparent)
         self.mayaMainWindow = maya_main_window()
         self.mayaMainWindow.setAcceptDrops(True)
 
@@ -363,20 +370,30 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             print(e)
 
     def _restoreGeometry(self):
-        """workspaceControl 创建后恢复窗口几何（必须在 show() 之后调用）。
-        停靠状态由 workspaceControl 自行管理，此处不恢复。"""
+        """workspaceControl 创建后恢复浮动窗口几何（必须在 show() 之后调用）。
+        停靠状态由 workspaceControl 管理；这里只处理浮动宿主窗口。"""
         if not self.isFloating():
             return
         pos, size, _ = self.readSettings()
+        settings = QtCore.QSettings('AssetsManager', 'AssetsManagerSettings')
         win = self.window()
         if win is None:
             return
-        # 尺寸（mini 高度固定，不恢复尺寸）
-        if not self.isMini and size is not None:
+
+        # saveGeometry 比单独 pos/size 更完整；旧设置仍通过 pos/size 向后兼容。
+        geometry_restored = False
+        geometry = settings.value('fullGeometry')
+        if not self.isMini and geometry is not None:
+            try:
+                geometry_restored = bool(win.restoreGeometry(geometry))
+            except Exception as e:
+                print(e)
+        if not self.isMini and not geometry_restored and size is not None:
             try:
                 self._resizeFloatingWindow(size.width(), size.height())
             except Exception as e:
                 print(e)
+
         # 位置：带屏幕越界防御，避免窗口跑到不可见区域
         if pos is not None:
             try:
@@ -387,8 +404,40 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             except Exception as e:
                 print(e)
 
+    def _savePageUiStates(self, sync=False):
+        """保存已创建页面的内部 UI 状态；mini 模式下旧页面可能已被 Qt 销毁。"""
+        asset = getattr(self, 'asset', None)
+        try:
+            if asset is None or not shiboken2.isValid(asset):
+                asset_page = getattr(self, 'asset_page', None)
+                layout = asset_page.layout() if asset_page is not None else None
+                asset = layout.itemAt(0).widget() if layout is not None and layout.count() else None
+            if asset is not None and hasattr(asset, 'saveUiState'):
+                asset.saveUiState(sync=sync)
+        except Exception as e:
+            print(e)
+
+    def _restorePageUiStates(self):
+        """在外层窗口完成几何恢复后，再恢复页面内部布局。"""
+        asset = getattr(self, 'asset', None)
+        try:
+            if asset is None or not shiboken2.isValid(asset):
+                asset_page = getattr(self, 'asset_page', None)
+                layout = asset_page.layout() if asset_page is not None else None
+                asset = layout.itemAt(0).widget() if layout is not None and layout.count() else None
+            if asset is not None and hasattr(asset, 'restoreUiState'):
+                asset.restoreUiState()
+        except Exception as e:
+            print(e)
+
+    def _restoreInitialUiState(self):
+        """按“外层几何 -> 内部 splitter/卷展栏”的顺序恢复完整界面。"""
+        self._restoreGeometry()
+        self._restorePageUiStates()
+
     def rememberSettings(self):
-        """ 写入QSettings数据（含停靠/浮动状态，供跨重启恢复） """
+        """写入外层窗口状态，并让已创建的页面保存各自的内部布局。"""
+        self._savePageUiStates(sync=True)
         settings = QtCore.QSettings('AssetsManager', 'AssetsManagerSettings')
         floating = self.isFloating()
         settings.setValue('floating', floating)
@@ -398,19 +447,27 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             settings.setValue('pos', win.pos())
             if not self.isMini:
                 settings.setValue('size', win.size())
+                settings.setValue('fullGeometry', win.saveGeometry())
         else:
             # 停靠时尽力记住停靠边（Maya 无查询命令，用 Qt dockWidgetArea 兜底）
             area = self._currentDockArea()
             if area:
                 settings.setValue('dockArea', area)
+            if not self.isMini:
+                settings.setValue('dockedSize', self.size())
         if not self.isMini:
             settings.setValue('tab', self.tabWidget.currentIndex())
         settings.setValue('isMini', self.isMini)
+        settings.sync()
 
     def _currentDockArea(self):
         """尽力返回当前停靠边 'left'/'right'/'top'/'bottom'，查不到返回 None。
         Maya workspaceControl 无直接查询 dock 区域的命令，用 Qt 的 dockWidgetArea 兜底。"""
         try:
+            # MayaQWidgetDockableMixin 已提供 dockArea()，优先使用其 QDockWidget 识别。
+            area = self.dockArea()
+            if area in ('left', 'right', 'top', 'bottom'):
+                return area
             control = self.parent()  # workspaceControl 的 QWidget
             if control is None:
                 return None
@@ -432,11 +489,37 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         isMini = settings.value('isMini')
 
         if isMini is not None:
-            if isMini == 'true':
-                self.isMini = True
-            else:
-                self.isMini = False
+            self.isMini = self._settingsBool(isMini)
         return pos, size, tab
+
+    @staticmethod
+    def _settingsBool(value, default=False):
+        """兼容不同 Maya/PySide 版本中 QSettings 的 bool 返回类型。"""
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'on')
+        return bool(value)
+
+    def savedWorkspaceOptions(self):
+        """返回新建 workspaceControl 的参数：默认始终以浮动状态打开。"""
+        settings = QtCore.QSettings('AssetsManager', 'AssetsManagerSettings')
+        options = {'floating': True}
+        if not self.isMini:
+            size = settings.value('size')
+            if size is not None:
+                options['width'] = size.width()
+                options['height'] = size.height()
+        return options
+
+    def _setMiniState(self, is_mini):
+        """更新当前界面模式，并只持久化模式本身，不改写窗口几何。"""
+        self.isMini = bool(is_mini)
+        settings = QtCore.QSettings('AssetsManager', 'AssetsManagerSettings')
+        settings.setValue('isMini', self.isMini)
+        settings.sync()
 
     def readLoginSetting(self):
         """ 读取am_maya自己的登录设置 """
@@ -588,25 +671,33 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.setStyleSheet(str)
 
     def shrinkWin(self):
-        """切换mini窗口"""
+        """切换 mini/full 界面，并为 full 界面保留独立的窗口尺寸。"""
         # 旧的 self.hide()/self.hide() 现改为隐藏当前中心控件；
         # setCentralWidget 会替换并销毁旧的中心控件，这里仅做切换前的防御性隐藏。
         if self.isMini:
+            # mini 状态下 rememberSettings 不会写 size，因此之前保存的 full 尺寸仍在。
             self.rememberSettings()
             try:
                 self.centralWidget().hide()
             except:
                 pass
+            # init_ui() 会调用 readSettings()；必须先把持久化模式切回 full，避免它
+            # 又从 QSettings 把 self.isMini 改回 True。
+            self._setMiniState(False)
             self.init_ui()
-            self.isMini = False
+            # setCentralWidget/layout 对浮动 workspaceControl 的尺寸更新在事件循环中
+            # 完成。下一轮再恢复进入 mini 前保存的 full 尺寸，避免停留在 350x41。
+            QtCore.QTimer.singleShot(0, self._restoreInitialUiState)
         else:
+            # 先以 full 状态保存当前位置、尺寸和 tab；后续 mini 状态的保存因
+            # rememberSettings 中的守卫不会覆盖这份 size。
             self.rememberSettings()
             try:
                 self.centralWidget().hide()
             except:
                 pass
+            self._setMiniState(True)
             self.init_ui_mini()
-            self.isMini = True
 
     def toolSetting_UI(self):
         """工具设置"""
@@ -777,14 +868,47 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         return QtWidgets.QMainWindow.window(self)
 
     def floatingChanged(self, isFloating):
-        print("floatingChanged")
-        print(self.workspaceControlName())
-        # cmds.workspaceControl(self.workspaceControlName(), e=1, cc=self.closeEvent())
-        # print(self.isFloating())
-        # if self.isFloating() == True:
-        #     print("isFloating")
-        # else:
-        #     print(self.isFloating())
+        """Maya 把 workspaceControl 在停靠区/浮动窗口之间重挂后的回调。
+
+        QOpenGLWidget 不能可靠地跨原生宿主窗口继续使用；不处理时它可能令整个
+        浮动窗口的合成层呈白色。初次创建由 showEvent 负责，这里只处理用户拖动。
+        """
+        if not getattr(self, '_isLoaded', False):
+            return
+        self._workspace_reparent_timer.start()
+
+    def _recoverAfterWorkspaceReparent(self):
+        """重挂完成后重建 GL 绘图表面，并请求整个中心区域重新绘制。"""
+        try:
+            if not shiboken2.isValid(self):
+                return
+
+            # mini 界面没有资产页/GL 预览，只需恢复 Qt 的可见与绘制状态。
+            if not self.isMini:
+                asset = getattr(self, 'asset', None)
+                preview = getattr(asset, 'preview', None) if asset is not None else None
+                if preview is not None and shiboken2.isValid(preview):
+                    preview.recoverAfterWorkspaceRestore()
+
+            # 某些 Maya/Qt 组合在 reparent 后会把内嵌 QMainWindow 或 centralWidget
+            # 留在“逻辑可见但没有提交绘制”的状态；显式恢复可见性并刷新 backing store。
+            if not self.isVisible():
+                QtWidgets.QWidget.setVisible(self, True)
+            central = self.centralWidget()
+            if central is not None:
+                central.setVisible(True)
+                central.updateGeometry()
+                central.update()
+            self.updateGeometry()
+            self.update()
+            top = QtWidgets.QMainWindow.window(self)
+            if top is not None and top is not self:
+                top.update()
+
+            # 等新的浮动/停靠状态稳定后再记录，避免退出 Maya 时仍读到旧状态。
+            self.rememberSettings()
+        except Exception as e:
+            print("[AssetsManager] workspace reparent recovery failed: %r" % (e,))
 
     def closeEvent(self, event):
         print("=====close event=======")
@@ -815,7 +939,9 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         super(AssetsManagerUI, self).showEvent(event)
         if not getattr(self, '_isLoaded', False):
             self._isLoaded = True
-            self._restoreGeometry()
+            # workspaceControl 会在首个 showEvent 后继续安排一次布局；下一轮恢复可避免
+            # Maya 用默认尺寸覆盖刚恢复的浮动几何。
+            QtCore.QTimer.singleShot(0, self._restoreInitialUiState)
 
     def show(self, **kwargs):
         """
@@ -831,16 +957,30 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         MayaQWidgetDockableMixin.show(self, **kwargs)
         self.raise_()
 
+    def recoverPreviewAfterWorkspaceRestore(self):
+        """重开持久化 workspaceControl 后，为 FBX 预览创建新的 GL 绘图表面。"""
+        try:
+            # workspaceControl.restore 也可能伴随一次 reparent 回调；本方法已经会
+            # 重建预览，取消延迟任务可避免短时间内连续重建两次 GL 上下文。
+            self._workspace_reparent_timer.stop()
+            self._restoreInitialUiState()
+            asset = getattr(self, 'asset', None)
+            preview = getattr(asset, 'preview', None)
+            if preview is not None:
+                preview.recoverAfterWorkspaceRestore()
+        except Exception as e:
+            # 预览恢复失败不应阻断整个 AssetManager 的重开；保留诊断供 Script
+            # Editor 查看，同时其余资产管理功能仍可继续使用。
+            print("[PreviewGL] workspace restore recovery failed: %r" % (e,))
+
 
 def showWindow():
     """
     显示 AssetsManager：复用同一实例、不销毁 workspaceControl，让 Maya 原生
     记住窗口状态（对齐 StudioLibrary）。
 
-    - 同一 Maya 会话内关掉再开：保持上次的位置/大小/停靠（复用实例 + 恢复已有控件）。
-    - 跨重启 Maya：停靠布局不恢复（不使用 uiScript，避免它与 QMainWindow 配合
-      在浮动切换时把内嵌内容 reparent 到画不出来的白屏状态）；浮动位置/大小由
-      QSettings 在首次 showEvent 恢复。
+    - 同一 Maya 会话内关掉再开：复用已有 workspaceControl，保持当前窗口状态。
+    - 首次打开或跨重启 Maya：默认创建为浮动窗口，位置/大小由 QSettings 恢复。
     """
     global win
 
@@ -858,8 +998,18 @@ def showWindow():
             pass
         win = AssetsManagerUI()
 
-    if (not need_new) and cmds.workspaceControl(WORKSPACE_CONTROL, q=True, exists=True):
+    reused_window = not need_new
+    if reused_window and cmds.workspaceControl(WORKSPACE_CONTROL, q=True, exists=True):
         # win 仍有效且控件还在：同一会话内重开，恢复显示并保持原停靠/位置/大小
         cmds.workspaceControl(WORKSPACE_CONTROL, e=True, restore=True)
     else:
-        win.show(dockable=True)
+        # 新 Maya 会话中 workspaceControl 需要重新创建；默认直接创建为浮动窗口，
+        # 避免先停靠后再发生一次会导致白屏的宿主 reparent。
+        show_options = win.savedWorkspaceOptions()
+        win.show(dockable=True, **show_options)
+
+    if reused_window:
+        # workspaceControl 被关闭时内部 QOpenGLWidget 可能丢失原生绘图表面，但 Maya
+        # 仍复用同一个 Python/Qt 对象。无论控件是 restore 还是重新 show，等当前轮
+        # UI 事件处理完后只重建 GL 子控件，并从 CPU 缓存恢复当前 FBX。
+        QtCore.QTimer.singleShot(0, win.recoverPreviewAfterWorkspaceRestore)

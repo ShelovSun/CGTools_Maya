@@ -13,6 +13,7 @@ from PySide2 import QtCore
 from PySide2 import QtWidgets
 
 from widgets.am_thumbnail_loader import ThumbnailLoader, ThumbnailWorker
+from widgets.am_surface_variants import SurfaceVariantLoader
 from utils import jsonHelper
 
 # 收藏/标签的本地存储目录（与 am_tableItem、faverWidget 共用同一份 JSON）
@@ -50,6 +51,14 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
         self._thumbnail_loaded = False
         self._thumbnail_loading = False
         self._thumbnail_size = 120
+
+        # 多皮肤卡片。目录发现在线程执行，只有可见条目的 loadThumbnail() 才会请求；
+        # pixmap 继续复用全局 ThumbnailLoader，绘制路径不做任何磁盘/网络访问。
+        self._surface_variants = []
+        self._surface_requested = False
+        self._surface_pixmaps = {}
+        self._surface_scaled_cache = {}
+        self._surface_loader = SurfaceVariantLoader.instance()
 
         # 缩放结果缓存：滚动时 paint 每帧都会缩放，缓存避免重复 SmoothTransformation。
         # key = (源图 cacheKey, 目标宽, 目标高)，源图或尺寸变了才重新缩放。
@@ -141,6 +150,8 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
 
     def loadThumbnail(self):
         """异步加载缩略图"""
+        self._requestSurfaceVariants()
+        self._loadMissingSurfaceThumbnails()
         if self._thumbnail_loaded or self._thumbnail_loading:
             return
 
@@ -162,6 +173,53 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
             # 异步加载真实图片，仅通过按路径回调通知本 item（避免全局信号风暴）
             self._loader.loadThumbnail(self._thumbnail_path, self._thumbnail_size,
                                        self._onThumbnailLoaded)
+
+    def _requestSurfaceVariants(self):
+        """只为资产目录异步发现皮肤；场景卡片不参与。"""
+        if self._surface_requested:
+            return
+        path = (self._thumbnail_path or "").replace("\\", "/")
+        if "/assets/" not in path.lower() or not self.name():
+            self._surface_requested = True
+            return
+        self._surface_requested = True
+        self._surface_loader.request(path, self.name(), self._onSurfaceVariants)
+
+    def _onSurfaceVariants(self, variants):
+        # 至少两套配对完整的 Icon+FBX 才按多皮肤卡片绘制；单个残留文件仍按普通资产。
+        self._surface_variants = list(variants) if len(variants) >= 2 else []
+        self._surface_pixmaps = {}
+        self._surface_scaled_cache = {}
+        self._loadMissingSurfaceThumbnails()
+        self._repaintHost()
+
+    def _loadMissingSurfaceThumbnails(self):
+        """补交曾因快速滚动被取消的逐皮小图请求。"""
+        for _surface, icon_path, _fbx_path in self._surface_variants:
+            if icon_path in self._surface_pixmaps:
+                continue
+            cached = ThumbnailWorker.getCachedPixmap(icon_path)
+            if cached is not None:
+                self._surface_pixmaps[icon_path] = cached
+            elif not self._loader.isPending(icon_path):
+                self._loader.loadThumbnail(
+                    icon_path, max(96, self._thumbnail_size), self._onSurfaceThumbnailLoaded)
+
+    def _onSurfaceThumbnailLoaded(self, path, pixmap):
+        if any(path == variant[1] for variant in self._surface_variants):
+            self._surface_pixmaps[path] = pixmap
+            self._surface_scaled_cache = {}
+            self._repaintHost()
+
+    def surfaceVariants(self):
+        """返回已发现的皮肤清单，主要供可见路径管理与诊断使用。"""
+        return list(self._surface_variants)
+
+    def thumbnailPaths(self):
+        """当前条目要保留的全部缩略图请求路径。"""
+        paths = [self._thumbnail_path] if self._thumbnail_path else []
+        paths.extend(variant[1] for variant in self._surface_variants)
+        return paths
 
     def _repaintHost(self):
         """触发宿主视图重绘。
@@ -379,6 +437,10 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
 
     def _paintIcon(self, painter, option):
         """绘制图标"""
+        if len(self._surface_variants) >= 2:
+            self._paintSurfaceIcons(painter, option)
+            return
+
         if self._thumbnail_pixmap is None or self._thumbnail_pixmap.isNull():
             # 使用默认图标（共享 pixmap，避免在绘制路径同步读网络文件）
             self._thumbnail_pixmap = self._getDefaultPixmap()
@@ -397,6 +459,53 @@ class ListItemOptimized(QtWidgets.QListWidgetItem):
             pixmap_rect.translate(x, y)
 
             painter.drawPixmap(pixmap_rect, pixmap)
+
+    def _paintSurfaceIcons(self, painter, option):
+        """首套皮肤占左侧大图，其余皮肤在右侧等分为小图。"""
+        rect = self._iconRect(option)
+        gap = max(2, int(round(rect.width() * 0.018)))
+        right_width = max(24, int(round(rect.width() * 0.31)))
+        left_width = max(1, rect.width() - right_width - gap)
+        large_rect = QtCore.QRect(rect.x(), rect.y(), left_width, rect.height())
+        small_x = large_rect.right() + 1 + gap
+        others = self._surface_variants[1:]
+
+        painter.fillRect(rect, QtGui.QColor(31, 32, 35))
+        self._drawSurfacePixmap(painter, large_rect, self._surface_variants[0][1])
+
+        count = len(others)
+        available = max(1, rect.height() - gap * max(0, count - 1))
+        for index, (_surface, icon_path, _fbx_path) in enumerate(others):
+            top = rect.y() + (available * index // count) + gap * index
+            bottom = rect.y() + (available * (index + 1) // count) + gap * index
+            small_rect = QtCore.QRect(small_x, top, right_width, max(1, bottom - top))
+            self._drawSurfacePixmap(painter, small_rect, icon_path)
+
+    def _drawSurfacePixmap(self, painter, rect, icon_path):
+        """覆盖式绘制单个皮肤缩略图，并缓存平滑缩放结果。"""
+        pixmap = self._surface_pixmaps.get(icon_path)
+        if pixmap is None or pixmap.isNull():
+            pixmap = self._getDefaultPixmap()
+        if pixmap is None or pixmap.isNull():
+            return
+
+        key = (icon_path, pixmap.cacheKey(), rect.width(), rect.height())
+        scaled = self._surface_scaled_cache.get(key)
+        if scaled is None:
+            scaled = pixmap.scaled(
+                rect.size(), QtCore.Qt.KeepAspectRatioByExpanding,
+                QtCore.Qt.SmoothTransformation)
+            # 一个条目只有少量皮肤；尺寸变化时直接丢掉旧档，避免滑块缩放累积缓存。
+            if len(self._surface_scaled_cache) > max(8, len(self._surface_variants) * 2):
+                self._surface_scaled_cache = {}
+            self._surface_scaled_cache[key] = scaled
+
+        x = rect.x() + (rect.width() - scaled.width()) // 2
+        y = rect.y() + (rect.height() - scaled.height()) // 2
+        painter.save()
+        painter.setClipRect(rect)
+        painter.drawPixmap(x, y, scaled)
+        painter.restore()
 
     def _paintText(self, painter, option):
         """绘制文字"""

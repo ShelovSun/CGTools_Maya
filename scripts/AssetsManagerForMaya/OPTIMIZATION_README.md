@@ -83,7 +83,7 @@ loader.loadThumbnail(path, size=120)
 - `rowReady`: 单行数据信号（实时更新）
 - `dataReady`: 批量数据信号（批量更新）
 
-### 6. 优化后的 assetTools (assetTools_optimized.py)
+### 6. 正式 assetTools (`sources/assetTools.py`)
 
 **改进**:
 - 使用新的数据库查询管理器
@@ -104,26 +104,18 @@ scripts/AssetsManagerForMaya/
 ├── utils/
 │   └── am_database.py              # 新增: 优化的数据库查询
 └── sources/
-    └── assetTools_optimized.py     # 新增: 优化后的 assetTools
+    └── assetTools.py               # Assets / Scenes 合并后的唯一正式实现
 ```
 
 ## 使用方法
 
-### 方式一：完全切换到新版本
-
-修改 `AssetsManager_Maya.py` 中的导入:
+优化版已并入正式入口，`AssetsManager_Maya.py` 直接导入：
 
 ```python
-# 原代码
 from sources import assetTools
-
-# 修改为
-from sources import assetTools_optimized as assetTools
 ```
 
-### 方式二：渐进式迁移
-
-保留原有代码，新功能使用新组件:
+需要单独复用高性能视图时，仍可直接导入底层组件：
 
 ```python
 # 在需要高性能的地方使用新组件

@@ -75,8 +75,19 @@ class MainStackedWidget(QtWidgets.QStackedWidget):
         return self._items_widget.itemCount()
 
     def itemAt(self, point):
-        """获取指定位置的 item"""
-        return self._items_widget.itemAt(point)
+        """获取指定位置的 item。
+
+        ``customContextMenuRequested`` 给出的是 MainStackedWidget 坐标，而 QListView /
+        QTableWidget.itemAt() 要求 viewport 坐标。特别是表格还有表头，直接透传会
+        把右键行判错甚至当成空白处。
+        """
+        view = self._items_widget.currentWidget()
+        if view is None:
+            return None
+        viewport = view.viewport() if hasattr(view, "viewport") else view
+        global_point = self.mapToGlobal(point)
+        viewport_point = viewport.mapFromGlobal(global_point)
+        return view.itemAt(viewport_point)
 
     def selectedItems(self):
         """获取选中的 items"""

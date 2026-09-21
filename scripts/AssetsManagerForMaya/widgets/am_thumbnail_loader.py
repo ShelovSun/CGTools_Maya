@@ -148,6 +148,7 @@ class ThumbnailLoader(QtCore.QObject):
         self._workers = {}
         self._pending_paths = set()
         self._callbacks = {}  # path -> [callback]，按路径回调，避免全局信号风暴
+        self._protected_paths = {}  # owner_key -> set(paths)，如右侧预览按钮不可被滚动取消
         self._mutex = QtCore.QMutex()
 
         # 初始化线程池
@@ -252,6 +253,8 @@ class ThumbnailLoader(QtCore.QObject):
         """
         keep = set(keep_paths or [])
         with QtCore.QMutexLocker(self._mutex):
+            for paths in self._protected_paths.values():
+                keep.update(paths)
             stale = [p for p in self._pending_paths if p not in keep]
             for p in stale:
                 worker = self._workers.pop(p, None)
@@ -260,6 +263,19 @@ class ThumbnailLoader(QtCore.QObject):
                 self._pending_paths.discard(p)
                 self._callbacks.pop(p, None)
         return stale
+
+    def setProtectedPaths(self, owner_key, paths):
+        """登记不应被列表滚动取消的少量路径；同 owner 的旧集合会被替换。"""
+        with QtCore.QMutexLocker(self._mutex):
+            clean = set(path for path in (paths or []) if path)
+            if clean:
+                self._protected_paths[owner_key] = clean
+            else:
+                self._protected_paths.pop(owner_key, None)
+
+    def clearProtectedPaths(self, owner_key):
+        with QtCore.QMutexLocker(self._mutex):
+            self._protected_paths.pop(owner_key, None)
 
     def cancelLoad(self, path):
         """取消加载指定路径的缩略图"""
@@ -272,13 +288,18 @@ class ThumbnailLoader(QtCore.QObject):
             self._callbacks.pop(path, None)
 
     def clearPendingLoads(self):
-        """清除所有待加载的缩略图"""
+        """清除列表待加载缩略图；右侧预览登记的保护路径继续完成。"""
         with QtCore.QMutexLocker(self._mutex):
-            for worker in self._workers.values():
-                worker.setCancelled(True)
-            self._workers.clear()
-            self._pending_paths.clear()
-            self._callbacks.clear()
+            protected = set()
+            for paths in self._protected_paths.values():
+                protected.update(paths)
+            stale = [path for path in self._pending_paths if path not in protected]
+            for path in stale:
+                worker = self._workers.pop(path, None)
+                if worker:
+                    worker.setCancelled(True)
+                self._pending_paths.discard(path)
+                self._callbacks.pop(path, None)
 
     @classmethod
     def clearCache(cls):

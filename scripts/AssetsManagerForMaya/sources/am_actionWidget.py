@@ -9,12 +9,17 @@
 ``/Action/`` 后的目录(``.../<asset>/Action``)。动作文件一般只含骨骼动画、无网格。
 """
 
+import datetime
 import os
 
 from PySide2 import QtCore
+from PySide2 import QtGui
 from PySide2 import QtWidgets
 
 __all__ = ["AssetActionWidget"]
+
+
+_SORT_VALUE_ROLE = int(QtCore.Qt.UserRole) + 1
 
 
 class AssetActionWidget(QtWidgets.QWidget):
@@ -24,6 +29,7 @@ class AssetActionWidget(QtWidgets.QWidget):
     """
 
     actionActivated = QtCore.Signal(str)
+    importRequested = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super(AssetActionWidget, self).__init__(parent)
@@ -49,10 +55,28 @@ class AssetActionWidget(QtWidgets.QWidget):
         sl.addWidget(self._search)
         outer.addWidget(search_wrap)
 
-        self._list = QtWidgets.QListWidget(self)
+        self._list = QtWidgets.QTreeWidget(self)
+        self._list.setColumnCount(3)
+        self._list.setHeaderLabels([u"名字", u"修改日期", u"大小"])
+        self._list.setRootIsDecorated(False)
+        self._list.setItemsExpandable(False)
+        self._list.setUniformRowHeights(True)
         self._list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         self._list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self._list.itemClicked.connect(self._on_item_clicked)
+        self._list.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._show_context_menu)
+
+        header = self._list.header()
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.setSortIndicator(0, QtCore.Qt.AscendingOrder)
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
+        header.sectionClicked.connect(self._on_header_clicked)
+        self._sort_column = 0
+        self._sort_order = QtCore.Qt.AscendingOrder
         outer.addWidget(self._list, 1)
 
     # ------------------------------------------------------------------ 对外接口
@@ -80,20 +104,29 @@ class AssetActionWidget(QtWidgets.QWidget):
 
         fbx_files = self._scan_actions(action_dir)
         # 顶部:回到绑定文件静态预览
-        top = QtWidgets.QListWidgetItem(u"资产预览")
-        top.setData(QtCore.Qt.UserRole, "")
-        self._list.addItem(top)
+        top = QtWidgets.QTreeWidgetItem([u"资产预览", "", ""])
+        top.setData(0, QtCore.Qt.UserRole, "")
+        self._list.addTopLevelItem(top)
 
         if not action_dir or not os.path.isdir(action_dir):
             self._add_hint(u"无 Action 目录")
         elif not fbx_files:
             self._add_hint(u"该资产无动作 (.fbx)")
         else:
-            for rel, full in fbx_files:
-                it = QtWidgets.QListWidgetItem(rel)
-                it.setData(QtCore.Qt.UserRole, full)
-                it.setToolTip(full)
-                self._list.addItem(it)
+            for rel, full, mtime, size in fbx_files:
+                it = QtWidgets.QTreeWidgetItem([
+                    rel,
+                    self._format_mtime(mtime),
+                    self._format_size(size),
+                ])
+                it.setData(0, QtCore.Qt.UserRole, full)
+                it.setData(0, _SORT_VALUE_ROLE, rel.lower())
+                it.setData(1, _SORT_VALUE_ROLE, mtime if mtime is not None else -1.0)
+                it.setData(2, _SORT_VALUE_ROLE, size if size is not None else -1)
+                it.setToolTip(0, full)
+                self._list.addTopLevelItem(it)
+
+            self._sort_action_items()
 
         self._list.blockSignals(False)
 
@@ -111,7 +144,7 @@ class AssetActionWidget(QtWidgets.QWidget):
         return (root + "/Action") if root else ""
 
     def _scan_actions(self, action_dir):
-        """递归收集 action_dir 下所有 .fbx,返回 [(相对路径, 全路径)],按相对路径排序。"""
+        """递归收集 .fbx，返回相对路径、全路径、修改时间戳和字节数。"""
         if not action_dir or not os.path.isdir(action_dir):
             return []
         out = []
@@ -120,33 +153,152 @@ class AssetActionWidget(QtWidgets.QWidget):
                 if fn.lower().endswith(".fbx"):
                     full = os.path.join(cur, fn).replace("\\", "/")
                     rel = os.path.relpath(full, action_dir).replace("\\", "/")
-                    out.append((rel, full))
+                    try:
+                        stat = os.stat(full)
+                        mtime = float(stat.st_mtime)
+                        size = int(stat.st_size)
+                    except OSError:
+                        mtime = None
+                        size = None
+                    out.append((rel, full, mtime, size))
         out.sort(key=lambda rf: rf[0].lower())
         return out
+
+    @staticmethod
+    def _format_mtime(mtime):
+        """把文件时间戳格式化为本地时间。"""
+        if mtime is None:
+            return u"—"
+        try:
+            return datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+        except (ValueError, OSError, OverflowError):
+            return u"—"
+
+    @staticmethod
+    def _format_size(size):
+        """以易读单位显示文件大小；排序仍使用原始字节数。"""
+        if size is None:
+            return u"—"
+        value = float(size)
+        units = ("B", "KB", "MB", "GB", "TB")
+        unit = units[0]
+        for unit in units:
+            if value < 1024.0 or unit == units[-1]:
+                break
+            value /= 1024.0
+        if unit == "B":
+            return "%d B" % int(value)
+        return "%.1f %s" % (value, unit)
+
+    def _on_header_clicked(self, column):
+        """单击表头：首次选择该列升序，再次单击切换升/降序。"""
+        if column == self._sort_column:
+            self._sort_order = (
+                QtCore.Qt.DescendingOrder
+                if self._sort_order == QtCore.Qt.AscendingOrder
+                else QtCore.Qt.AscendingOrder
+            )
+        else:
+            self._sort_column = column
+            self._sort_order = QtCore.Qt.AscendingOrder
+        self._list.header().setSortIndicator(self._sort_column, self._sort_order)
+        self._sort_action_items()
+
+    def _sort_action_items(self):
+        """仅排序 FBX 行；“资产预览”和提示行保持原位。"""
+        selected_path = None
+        current = self._list.currentItem()
+        if current is not None:
+            selected_path = current.data(0, QtCore.Qt.UserRole)
+
+        action_items = []
+        for index in range(self._list.topLevelItemCount() - 1, -1, -1):
+            item = self._list.topLevelItem(index)
+            if item.data(0, QtCore.Qt.UserRole):
+                action_items.append(self._list.takeTopLevelItem(index))
+
+        column = self._sort_column
+        action_items.sort(
+            key=lambda item: item.data(column, _SORT_VALUE_ROLE),
+            reverse=self._sort_order == QtCore.Qt.DescendingOrder,
+        )
+
+        # 第 0 行固定是“资产预览”；提示行只在没有动作时出现。
+        for offset, item in enumerate(action_items, 1):
+            self._list.insertTopLevelItem(offset, item)
+            if selected_path and item.data(0, QtCore.Qt.UserRole) == selected_path:
+                self._list.setCurrentItem(item)
+        # take/insert 后重新应用当前搜索词，避免排序使已过滤条目重新显示。
+        self._apply_filter()
 
     def _apply_filter(self, text=None):
         """按关键字隐藏不匹配的动作项(大小写不敏感子串匹配)。
         顶部"资产预览"始终可见;提示项(无 UserRole)不参与过滤。"""
         kw = (text if text is not None else self._search.text()).strip().lower()
-        for i in range(self._list.count()):
-            it = self._list.item(i)
-            data = it.data(QtCore.Qt.UserRole)
+        for i in range(self._list.topLevelItemCount()):
+            it = self._list.topLevelItem(i)
+            data = it.data(0, QtCore.Qt.UserRole)
             if data is None:
                 continue  # 提示项
             if data == "":
                 it.setHidden(False)  # 资产预览锚点始终可见
                 continue
-            it.setHidden(bool(kw) and kw not in it.text().lower())
+            it.setHidden(bool(kw) and kw not in it.text(0).lower())
 
     def _add_hint(self, text):
-        it = QtWidgets.QListWidgetItem(text)
+        it = QtWidgets.QTreeWidgetItem([text, "", ""])
         it.setFlags(QtCore.Qt.NoItemFlags)
-        self._list.addItem(it)
+        self._list.addTopLevelItem(it)
 
-    def _on_item_clicked(self, item):
+    def _on_item_clicked(self, item, _column=0):
         if item is None:
             return
-        path = item.data(QtCore.Qt.UserRole)
+        path = item.data(0, QtCore.Qt.UserRole)
         if path is None:
             return  # 提示项(无 UserRole)
         self.actionActivated.emit(str(path))
+
+    def _show_context_menu(self, point):
+        """动作条目右键菜单；“资产预览”和提示行不提供文件操作。"""
+        item = self._list.itemAt(point)
+        if item is None:
+            return
+        path = item.data(0, QtCore.Qt.UserRole)
+        if not path:
+            return
+
+        path = os.path.normpath(str(path))
+        folder = os.path.dirname(path)
+        self._list.setCurrentItem(item)
+
+        menu = QtWidgets.QMenu(self._list)
+        open_folder_action = menu.addAction(u"打开文件夹")
+        open_folder_action.setEnabled(os.path.isdir(folder))
+        import_action = menu.addAction(u"导入动作")
+        import_action.setEnabled(os.path.isfile(path))
+
+        chosen = menu.exec_(self._list.viewport().mapToGlobal(point))
+        if chosen == open_folder_action:
+            self._open_action_folder(path)
+        elif chosen == import_action:
+            self.importRequested.emit(path.replace("\\", "/"))
+
+    @staticmethod
+    def _open_action_folder(path):
+        """用资源管理器打开动作所在目录，并优先选中该 FBX。"""
+        path = os.path.normpath(path)
+        if os.path.isfile(path):
+            try:
+                started = QtCore.QProcess.startDetached(
+                    "explorer.exe", ["/select,", path])
+                # 兼容不同 PySide2 版本返回 bool 或 (bool, pid)。
+                if isinstance(started, tuple):
+                    started = started[0]
+                if started:
+                    return
+            except Exception:
+                pass
+
+        folder = os.path.dirname(path)
+        if os.path.isdir(folder):
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(folder))

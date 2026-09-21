@@ -9,11 +9,13 @@ import maya.mel as mel
 import glob
 import os
 import shutil
+import sys
 
 import psycopg2
 import time
 import json
 from . import capture
+from . import ue_bridge
 
 from PySide2 import QtCore
 from PySide2 import QtGui
@@ -110,6 +112,66 @@ class FlowLayout(QtWidgets.QLayout):
             x = nextX
             lineHeight = max(lineHeight, item.sizeHint().height())
         return y + lineHeight - rect.y()
+
+
+class SunkenPanel(QtWidgets.QFrame):
+    """带柔和内阴影的深色面板，用来表现内容区域的下陷层次。"""
+
+    BACKGROUND_COLOR = QtGui.QColor(53, 53, 53)
+    BORDER_COLOR = QtGui.QColor(35, 35, 35)
+    SHADOW_SIZE = 3
+
+    def __init__(self, parent=None):
+        super(SunkenPanel, self).__init__(parent)
+        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+
+    def paintEvent(self, event):
+        super(SunkenPanel, self).paintEvent(event)
+
+        rect = QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        if rect.width() <= 1 or rect.height() <= 1:
+            return
+
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+
+        panel_path = QtGui.QPainterPath()
+        panel_path.addRect(rect)
+        painter.fillPath(panel_path, self.BACKGROUND_COLOR)
+
+        # 上、左方向压暗，模拟光线被面板边缘遮挡形成的内阴影。
+        painter.save()
+        painter.setClipPath(panel_path)
+
+        top_shadow = QtGui.QLinearGradient(0, rect.top(), 0,
+                                           rect.top() + self.SHADOW_SIZE)
+        top_shadow.setColorAt(0.0, QtGui.QColor(0, 0, 0, 92))
+        top_shadow.setColorAt(0.35, QtGui.QColor(0, 0, 0, 38))
+        top_shadow.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        painter.fillRect(
+            QtCore.QRectF(rect.left(), rect.top(), rect.width(), self.SHADOW_SIZE),
+            QtGui.QBrush(top_shadow))
+
+        left_shadow = QtGui.QLinearGradient(rect.left(), 0,
+                                            rect.left() + self.SHADOW_SIZE, 0)
+        left_shadow.setColorAt(0.0, QtGui.QColor(0, 0, 0, 66))
+        left_shadow.setColorAt(0.45, QtGui.QColor(0, 0, 0, 24))
+        left_shadow.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        painter.fillRect(
+            QtCore.QRectF(rect.left(), rect.top(), self.SHADOW_SIZE, rect.height()),
+            QtGui.QBrush(left_shadow))
+        painter.restore()
+
+        # 暗色外框和底部弱高光共同强化内凹方向，同时保持 Maya 深色主题的克制感。
+        painter.setPen(QtGui.QPen(self.BORDER_COLOR, 1.0))
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawPath(panel_path)
+
+        highlight_pen = QtGui.QPen(QtGui.QColor(255, 255, 255, 24), 1.0)
+        painter.setPen(highlight_pen)
+        painter.drawLine(QtCore.QPointF(rect.left(), rect.bottom() - 1.0),
+                         QtCore.QPointF(rect.right(), rect.bottom() - 1.0))
+        painter.end()
 
 
 class MyThread(QtCore.QThread):
@@ -313,23 +375,42 @@ class ReferenceSelectDialog(QtWidgets.QDialog):
 
     def __init__(self, references, checked_refs=None, parent=None):
         super(ReferenceSelectDialog, self).__init__(parent)
-        self.setWindowTitle(u"选择要发布的Reference")
+        self.setWindowTitle(u"勾选要发布的Reference")
         self.resize(560, 320)
         checked_refs = checked_refs or set()
 
         layout = QtWidgets.QVBoxLayout(self)
         self.listWidget = QtWidgets.QListWidget()
         layout.addWidget(self.listWidget)
+        self._reference_rows = []
 
         for refNode, fileName in references:
-            item = QtWidgets.QListWidgetItem(u"{0}    {1}".format(refNode, fileName))
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-            if refNode in checked_refs:
-                item.setCheckState(QtCore.Qt.Checked)
-            else:
-                item.setCheckState(QtCore.Qt.Unchecked)
+            item = QtWidgets.QListWidgetItem()
             item.setData(QtCore.Qt.UserRole, (refNode, fileName))
+            item.setSizeHint(QtCore.QSize(0, 22))
             self.listWidget.addItem(item)
+
+            # 参考 Maya Reference 编辑器：使用原生 QCheckBox 绘制勾选框，
+            # 左侧保留树形缩进，并拉开勾选框与 Reference 名称之间的距离。
+            row_widget = QtWidgets.QWidget()
+            row_layout = QtWidgets.QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(26, 0, 4, 0)
+            row_layout.setSpacing(0)
+
+            check_box = QtWidgets.QCheckBox(u"{0}    {1}".format(refNode, fileName))
+            check_box.setChecked(refNode in checked_refs)
+            check_box.setStyleSheet(
+                "QCheckBox { spacing: 61px; }"
+                "QCheckBox::indicator { width: 13px; height: 13px; }"
+                "QCheckBox::indicator:unchecked {"
+                " border: 1px solid rgb(175, 175, 175);"
+                " background-color: rgb(55, 55, 55);"
+                "}"
+            )
+            row_layout.addWidget(check_box, 1, QtCore.Qt.AlignVCenter)
+
+            self.listWidget.setItemWidget(item, row_widget)
+            self._reference_rows.append((check_box, refNode, fileName))
 
         btnLayout = QtWidgets.QHBoxLayout()
         btnLayout.addStretch()
@@ -344,12 +425,9 @@ class ReferenceSelectDialog(QtWidgets.QDialog):
 
     def checkedReferences(self):
         """ 返回被勾选的 (refNode, fileName) 列表 """
-        result = []
-        for i in range(self.listWidget.count()):
-            item = self.listWidget.item(i)
-            if item.checkState() == QtCore.Qt.Checked:
-                result.append(item.data(QtCore.Qt.UserRole))
-        return result
+        return [(refNode, fileName)
+                for check_box, refNode, fileName in self._reference_rows
+                if check_box.isChecked()]
 
 
 class _CollapsibleHeader(QtWidgets.QWidget):
@@ -476,7 +554,7 @@ class ActionPublishItem(QtWidgets.QWidget):
         self.action_edit = QtWidgets.QLineEdit()
         self.action_edit.setFont(font)
         self.action_edit.setStyleSheet(self.EDIT_STYLE)
-        self.action_edit.setPlaceholderText(u"**必填")
+        self.action_edit.setPlaceholderText(u"**必填（例如：QCZMPS_walk）")
         self.action_edit.setClearButtonEnabled(True)
         row.addWidget(self._label(u"动作名："))
         row.addWidget(self.action_edit)
@@ -594,6 +672,10 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.action_items = []  # Action发布：当前生成的 ActionPublishItem 组件列表
         self.action_items_layout = None  # Action发布：承载组件的垂直布局
         self._last_published_fbx = []  # Action发布：最近一次发布成功的fbx路径列表
+        # UE 通知使用比 _last_published_fbx 更完整的结构化记录。这里特意不只发送
+        # 文件路径，因为 UE C++ 插件还需要资产名、动作名、项目名和帧范围，才能
+        # 根据自己的配置解析 Skeleton 与 Content Browser 目标目录。
+        self._last_published_actions = []
         self.port_path = ''
         self.gpu_file_path = ''
         self.proxy_file_path = ''
@@ -634,6 +716,13 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.ui.render_bttn_sc.clicked.connect(lambda: self.renderIcon(self.ui.Preview_label_sc))
         self.ui.capture_btn_sc.setIcon(QtGui.QPixmap('%s/icon/capture.png' % self.scriptsPath))
         self.ui.capture_btn_sc.clicked.connect(lambda: self.capture_screen())
+        # Scene 类型既可以从现有目录列表中选择，也允许直接输入一个新类型。
+        # NoInsert 表示“输入”本身不会悄悄改写下拉列表；只有发布前成功在
+        # {ROOT}/{project}/Scenes 下建好目录后，才把新类型加入当前列表。
+        self.ui.publishType_comb_sc.setEditable(True)
+        self.ui.publishType_comb_sc.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+        self.ui.publishType_comb_sc.lineEdit().setPlaceholderText(u"选择或输入新类型")
+        self.ui.publishType_comb_sc.editTextChanged.connect(self.scene_type_text_changed)
         self.ui.publishType_comb_sc.currentIndexChanged.connect(lambda: self.type_changed('scene'))
         ''' ac '''
         self.ui.render_bttn_ac.setIcon(QtGui.QPixmap('%s/icon/render.png' % self.scriptsPath))
@@ -808,11 +897,12 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """在 Rig 标签页构建换皮面板（插在 frame_3 下方）"""
         rig_tab = self.ui.rig_tab
         layout = rig_tab.layout()  # verticalLayout_6
-        self.surface_panel = QtWidgets.QWidget()
+        self.surface_panel = SunkenPanel()
+        self.surface_panel.setObjectName("surfacePanel")
         self.surface_panel.setVisible(False)
         sv = QtWidgets.QVBoxLayout(self.surface_panel)
-        sv.setContentsMargins(4, 2, 4, 2)
-        sv.setSpacing(2)
+        sv.setContentsMargins(8, 7, 8, 8)
+        sv.setSpacing(4)
 
         head = QtWidgets.QHBoxLayout()
         head.setSpacing(6)
@@ -832,24 +922,30 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         sv.addLayout(head)
 
         scroll = QtWidgets.QScrollArea()
+        scroll.setObjectName("surfaceScrollArea")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll.setMaximumHeight(300)
+        scroll.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                             QtWidgets.QSizePolicy.Expanding)
+        scroll.viewport().setObjectName("surfaceScrollViewport")
         inner = QtWidgets.QWidget()
+        inner.setObjectName("surfaceScrollContents")
         self.surface_cells_layout = FlowLayout(inner, hSpacing=8, vSpacing=8)
         scroll.setWidget(inner)
-        sv.addWidget(scroll)
+        # 滚动区不另铺底色，露出 SunkenPanel 绘制的深色背景和内阴影。
+        # 每条规则都使用对象名限定，避免透明背景样式影响子级复选框的原生绘制。
+        scroll.setStyleSheet(
+            "QScrollArea#surfaceScrollArea { background: transparent; border: none; }"
+            "QWidget#surfaceScrollViewport { background: transparent; }"
+            "QWidget#surfaceScrollContents { background: transparent; }")
+        # 滚动区占满标题下方的剩余高度，窗口变高时多余空间留在卡片下方。
+        sv.addWidget(scroll, 1)
 
-        # 把 surface_panel 插到 verticalLayout_3 的 verticalSpacer_3 之前，
-        # 避免 spacer 扩张导致 frame_3 与换皮面板之间出现大段空白。
-        vlayout3 = None
-        for i in range(layout.count()):
-            item = layout.itemAt(i)
-            if item.layout() is not None:
-                vlayout3 = item.layout()
-                break
-        if vlayout3 is not None:
-            vlayout3.insertWidget(vlayout3.count() - 1, self.surface_panel)
+        # 精确插到主资产区域 frame_3 后面，避免依赖布局项数量造成上下顺序反转。
+        vlayout3 = rig_tab.findChild(QtWidgets.QVBoxLayout, "verticalLayout_3")
+        frame_index = vlayout3.indexOf(self.ui.frame_3) if vlayout3 is not None else -1
+        if frame_index >= 0:
+            vlayout3.insertWidget(frame_index + 1, self.surface_panel)
         else:
             layout.addWidget(self.surface_panel)
 
@@ -918,9 +1014,10 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     def _make_surface_cell(self, s, zh_default):
         """构建一个皮肤格子（固定大小，不随窗体拉伸）"""
         cell = QtWidgets.QFrame()
+        cell.setObjectName("surfaceCard")
         cell.setFixedSize(180, 240)
         cell.setStyleSheet(
-            "QFrame { background: rgba(47,127,184,0.10);"
+            "QFrame#surfaceCard { background-color: rgb(65,65,65);"
             " border: 1px solid rgba(255,255,255,0.18); border-radius: 4px; }")
         cv = QtWidgets.QVBoxLayout(cell)
         cv.setContentsMargins(4, 4, 4, 4)
@@ -962,8 +1059,11 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         cv.addWidget(preview_lab)
 
         lab_name = QtWidgets.QLabel(s)
+        lab_name.setObjectName("surfaceNameLabel")
         lab_name.setAlignment(QtCore.Qt.AlignCenter)
-        lab_name.setStyleSheet("font-weight: bold; color: #e8e8f0; font-size: 10pt;")
+        lab_name.setStyleSheet(
+            "QLabel#surfaceNameLabel { background: transparent; border: none;"
+            " border-radius: 0; font-weight: bold; color: #e8e8f0; font-size: 10pt; }")
         cv.addWidget(lab_name, 0, QtCore.Qt.AlignHCenter)
 
         zh_edit = QtWidgets.QLineEdit(zh_default)
@@ -1150,6 +1250,69 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         projectName = self.ui.publishProj_comb.currentText()
         self.update_type(projectName, 'Scenes', self.ui.publishType_comb_sc)
         self.check_sc()
+
+    def scene_type_text_changed(self, text):
+        """Scene 类型框输入变化时更新按钮和目标路径，不在每个按键上检查 Maya 场景。
+
+        ``currentIndexChanged`` 继续负责下拉选项的完整检查；手动输入时这里只做轻量
+        UI 更新，真正的文件夹名校验和创建统一放在点击“确定发布”之后。
+        """
+        publish_type = text.strip()
+        if not publish_type or publish_type == u"**":
+            self.ui.Yes_bttn.setEnabled(False)
+            return
+
+        self.ui.Yes_bttn.setEnabled(True)
+        project_name, character_name, _ch_name, _publish_type, path = self.get_publishInfo_sc()
+        self.ui.Title_label.setText(
+            u"<h3>确定发布 {0} 到 \n{1} ？</h3>".format(character_name, path)
+        )
+
+    def _scene_type_item_index(self, publish_type):
+        """不区分大小写查找 Scene 类型，避免 Windows 上创建同名大小写目录。"""
+        expected = publish_type.strip().lower()
+        combo = self.ui.publishType_comb_sc
+        for index in range(combo.count()):
+            if combo.itemText(index).strip().lower() == expected:
+                return index
+        return -1
+
+    def _ensure_scene_type_folder(self):
+        """保证当前 Scene 类型目录存在；手动输入的新类型会在这里正式创建。
+
+        目录创建复用 AssetsManager 右键“新建文件夹”的校验逻辑，因此只能创建
+        ``{ROOT}/{project}/Scenes/<类型>`` 这一层，不能通过 ``../`` 或路径分隔符
+        把发布位置带到 Scenes 之外。
+        """
+        project_name, _asset_name, _ch_name, publish_type, _path = self.get_publishInfo_sc()
+        if not publish_type or publish_type == u"**":
+            QtWidgets.QMessageBox.warning(self, u'提示', u'请选择或输入正确的 Scene 类型')
+            return False
+
+        settings = self.projectSetting()
+        project_root = os.path.join(settings['rootPath'], project_name)
+        scenes_folder = settings['scenesFolder']
+        if not self.Pub.create_folder(
+                self,
+                project_root,
+                publish_type,
+                fixed_subdir=scenes_folder,
+                allow_existing=True):
+            return False
+
+        # 新目录创建成功后加入本次会话的下拉列表。屏蔽信号，避免发布过程中
+        # 因 setCurrentIndex 再次执行场景检查。
+        combo = self.ui.publishType_comb_sc
+        index = self._scene_type_item_index(publish_type)
+        signals_were_blocked = combo.blockSignals(True)
+        try:
+            if index < 0:
+                combo.addItem(publish_type)
+                index = combo.count() - 1
+            combo.setCurrentIndex(index)
+        finally:
+            combo.blockSignals(signals_were_blocked)
+        return True
 
     def type_changed(self, tab):
         """
@@ -1357,19 +1520,50 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             return True
         return False
 
-    def _ref_project_asset(self, refNode):
-        """ 从reference反查 (项目名, 资产名)
+    def _ref_project_asset_info(self, refNode):
+        """从 Reference 路径解析 ``(项目名, 资产类型, 资产名)``。
 
-        路径范例：Y:/MCCProject/GOF/Assets/Characters/BaSiTeV4/.../BaSiTeV4_hi_rig.ma
-                  ->  项目=GOF(索引2)  资产=BaSiTeV4(索引5)
+        图片中显示的 ``Characters`` 就来自 Reference 文件路径本身，不是发布工具
+        生成的值。例如：
+
+            Y:/MCCProject/GOF/Assets/Characters/BOSS/Rig/BOSS_hi_rig.ma
+            -> project_name = GOF
+            -> asset_type = Characters
+            -> asset_name = BOSS
+
+        不再使用固定的 parts[2]/parts[5]，而是先定位配置中的 assetFolder（通常为
+        ``Assets``）。这样盘符或 ``Assets`` 之前的目录层级变化时仍能正确解析。
+
+        :rtype: tuple(str|None, str|None, str|None)
         """
+        if not refNode:
+            return None, None, None
         try:
             path = cmds.referenceQuery(refNode, filename=True, withoutCopyNumber=True)
-        except RuntimeError:
-            return None, None
+        except (RuntimeError, TypeError):
+            return None, None, None
+
         parts = path.replace('\\', '/').split('/')
-        project = parts[2] if len(parts) > 2 else None
-        asset = parts[5] if len(parts) > 5 else None
+        asset_folder = self.projectSetting()['assetFolder']  # 项目配置中通常为 "Assets"
+        try:
+            asset_folder_index = parts.index(asset_folder)
+        except ValueError:
+            return None, None, None
+
+        project = parts[asset_folder_index - 1] if asset_folder_index >= 1 else None
+        asset_type = (
+            parts[asset_folder_index + 1]
+            if len(parts) > asset_folder_index + 1 else None
+        )
+        asset = (
+            parts[asset_folder_index + 2]
+            if len(parts) > asset_folder_index + 2 else None
+        )
+        return project, asset_type, asset
+
+    def _ref_project_asset(self, refNode):
+        """兼容原调用方：从 Reference 返回 ``(项目名, 资产名)``。"""
+        project, _asset_type, asset = self._ref_project_asset_info(refNode)
         return project, asset
 
     def build_action_items(self):
@@ -1475,7 +1669,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     def get_publishInfo_sc(self):
         projectName = self.ui.publishProj_comb.currentText()
         characterName = self.ui.name_lineEdit_sc.text()
-        publishType = self.ui.publishType_comb_sc.currentText()
+        # 可编辑下拉框可能带入首尾空格；路径、数据库类型和新建目录统一使用净值。
+        publishType = self.ui.publishType_comb_sc.currentText().strip()
         characterCHName = self.ui.CHname_lineEdit_sc.text()
         path = '%s/%s/%s/%s' % (self.projectSetting()['rootPath'],
                                 projectName,
@@ -1531,7 +1726,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
     def isYesEnable_sc(self):
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_sc()
-        if publishType == u"**":
+        if not publishType or publishType == u"**":
             self.ui.Yes_bttn.setEnabled(False)
         else:
             self.ui.Yes_bttn.setEnabled(True)
@@ -1759,6 +1954,25 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             sm_notify.notify_asset_published(self.user, projectName, assetName, path)
         except Exception as e:
             print("[PublishTool] 通知 ShotManager 失败(已忽略):", e)
+
+    @staticmethod
+    def _refresh_open_assets_manager():
+        """Scene 发布完成后刷新同一 Maya 会话里已经打开的 AssetsManager。
+
+        只读取 ``sys.modules``，不会为了刷新而额外导入或打开 AssetsManager；工具未
+        打开、窗口已销毁或刷新失败时都静默跳过，不影响已经完成的 Scene 发布。
+        """
+        manager_module = sys.modules.get('AssetsManager_Maya')
+        if manager_module is None:
+            return
+        try:
+            manager_window = getattr(manager_module, 'win', None)
+            asset_page = getattr(manager_window, 'asset', None)
+            refresh = getattr(asset_page, 'refresh_asset', None)
+            if callable(refresh):
+                refresh()
+        except Exception as error:
+            print("[PublishTool] 刷新 AssetsManager 失败(已忽略):", error)
 
     def _modPublish(self):
         """
@@ -2055,6 +2269,11 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
     def _scenePublish(self):
         res = self.check_sc()
+        if not res:
+            return
+        # 场景本身通过检查后再创建手动输入的类型目录，避免无效发布留下空文件夹。
+        if not self._ensure_scene_type_folder():
+            return
         assemblies = self.assemblies
         if res == "isMAP":
             self._scenePublish_Map(assemblies[0])
@@ -2148,6 +2367,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.setDetailedText(self._log)
         msg.exec_()
         self._notify_shotmanager(projectName, characterName, path)
+        self._refresh_open_assets_manager()
         self.ui.log_progressBar.setVisible(False)
 
     def _scenePublish_GRP(self, assemblies):
@@ -2255,6 +2475,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.setDetailedText(self._log)
         msg.exec_()
         self._notify_shotmanager(projectName, grp_name, path)
+        self._refresh_open_assets_manager()
         self.ui.log_progressBar.setVisible(False)
 
     def _scenePublish_Single(self, assemblies):
@@ -2358,6 +2579,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.setDetailedText(self._log)
         msg.exec_()
         self._notify_shotmanager(projectName, characterName, path)
+        self._refresh_open_assets_manager()
         self.ui.log_progressBar.setVisible(False)
 
     def _actionsPublish(self):
@@ -2385,6 +2607,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.ui.log_progressBar.setVisible(True)
         self.ui.log_progressBar.setValue(0)
         self._last_published_fbx = []  # 清空上次的记录，本轮重新收集
+        self._last_published_actions = []  # 清空上轮 UE 通知数据，防止重复提示旧动作
 
         Pub = publish.Publish()
         total = len(infos)
@@ -2395,6 +2618,14 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.ui.log_progressBar.setValue(int((index + 1) * 100.0 / total))
 
         self.ui.log_progressBar.setValue(100)
+
+        # 只有用户勾选“发布完成通知UE导入”时才建立 Socket 连接并通知 UE。
+        # 未勾选时完全跳过 UE Bridge，不连接端口、不等待 ACK，也不写 UE 离线日志。
+        # 通知仍放在 Maya 的模态完成窗口 msg.exec_() 之前；如果放在其后，用户不先
+        # 关闭 Maya 弹窗，UE 就无法及时收到本轮发布消息。
+        if self.ui.send_ue_cBox.isChecked():
+            self._notify_unreal_actions()
+
         ''' =============== END =============================================== '''
         msg = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Information, u"提示：",
                                     u"<h3>动作发布完成！成功 {0}/{1}\n查看log获取更多细节?</h3>".format(success, total))
@@ -2463,11 +2694,130 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         try:
             fbxPath = '%s/%s_%s.fbx' % (folder, characterName, actionName)
             self.ani_fbx_export(fbxPath, start, end, namespace=namespace)
+            # UE 只能导入真实存在的文件。导出函数没有抛异常但磁盘上没有 FBX 时，
+            # 也必须按失败处理，不能向 UE 发送一个无效路径。
+            if not os.path.isfile(fbxPath):
+                raise RuntimeError(u"FBX导出调用已结束，但目标文件不存在：{0}".format(fbxPath))
             self.logMsg(None, u"{0} fbx已发布：{1}".format(label, fbxPath), "succeed")
             return fbxPath
         except Exception as e:
             self.logMsg(None, u"{0} fbx发布失败：{1}".format(label, e), "failed")
             return None
+
+    def _build_ue_action_record(self, info, start, end, maya_file_path, fbx_path):
+        """整理一条发给 UE 的动作记录。
+
+        UE 插件不应从 ``Nujian_Run.fbx`` 这样的文件名猜资产信息，因此 Maya 在
+        发布时把已经确认的数据一起发送。``asset_type`` 是 Reference 路径中
+        ``Assets`` 后面的一级目录，动作发布当前只允许 ``Characters``/``Props``。
+        Skeleton 和 UE Content 路径仍由 UE 根据
+        ``project_name + asset_type + asset_name`` 的项目配置解析，两边职责不要混在一起。
+
+        字段名是 Maya/UE 通信协议的一部分。如需改名或改变含义，必须同时提升
+        ``ue_bridge.PROTOCOL_VERSION``，并同步修改 UE C++ 插件。
+        """
+        ref_node = info.get('ref_node')
+        project_name, asset_type, _ref_asset = self._ref_project_asset_info(ref_node)
+        if asset_type not in ('Characters', 'Props'):
+            raise ValueError(
+                u"无法从Reference路径确定Characters/Props类型：{0}".format(
+                    info.get('ref_path') or ref_node or u"<empty>"))
+
+        # 使用 withoutCopyNumber=True 去掉 Maya 在重复 Reference 后附加的 {1}/{2}，
+        # 让 UE 日志中记录的是实际源文件路径。查询失败时退回 UI 已缓存的路径。
+        try:
+            reference_path = cmds.referenceQuery(
+                ref_node, filename=True, withoutCopyNumber=True)
+        except RuntimeError:
+            reference_path = info.get('ref_path') or u""
+
+        try:
+            file_size = os.path.getsize(fbx_path)
+        except OSError:
+            file_size = None
+
+        return {
+            'project_name': project_name,
+            'asset_type': asset_type,
+            'asset_name': info.get('asset_name') or u"",
+            'action_name': info.get('action_name') or u"",
+            'fbx_path': fbx_path,
+            'fbx_size_bytes': file_size,
+            'maya_file_path': maya_file_path,
+            'reference_node': ref_node or u"",
+            'reference_path': reference_path,
+            'namespace': self._ref_namespace(ref_node) or u"",
+            'start_frame': start,
+            'end_frame': end,
+        }
+
+    def _notify_unreal_actions(self):
+        """把本轮成功导出的 FBX 批量通知给本机 Unreal Editor。
+
+        通知不是发布成功的必要条件：UE 没打开、插件没启用或协议不匹配时，Maya
+        动作仍然已经正常发布。本方法只把通信结果写入发布日志，不弹额外 Maya
+        警告，也不自动重试；自动重试可能让已经收到消息的 UE 重复弹窗。
+
+        ``ue_bridge`` 默认连接 127.0.0.1:19821，使用 4 字节 big-endian 长度头
+        加 UTF-8 JSON。完整协议和 UE C++ 实现注意事项写在 ue_bridge.py 顶部。
+        """
+        if not self._last_published_actions:
+            return
+
+        source_context = {
+            'maya_version': str(cmds.about(version=True)),
+            'publish_tool_version': self.VERSION,
+        }
+        # bridge 模块正常情况下会把网络异常转换为 result；这里再保留最后一道保护，
+        # 确保未来协议代码即使出现意外异常，也绝不会中断已经完成的 Maya 发布。
+        try:
+            result = ue_bridge.notify_actions_published(
+                self._last_published_actions,
+                source_context=source_context,
+            )
+        except Exception as error:
+            self.logMsg(
+                None,
+                u"UE通知模块发生未处理异常：{0}（不影响Maya发布）".format(error),
+                "failed",
+            )
+            return
+
+        count = len(self._last_published_actions)
+        status = result.get('status')
+        address = u"{0}:{1}".format(result.get('host'), result.get('port'))
+        if status == 'acknowledged':
+            self.logMsg(
+                None,
+                u"已通知UE：{0}个动作等待确认导入（{1}）".format(count, address),
+                "succeed",
+            )
+        elif status == 'sent':
+            self.logMsg(
+                None,
+                u"UE通知已发送，但未在短超时内收到ACK；为避免重复弹窗，本次不重试",
+                "unchecked",
+            )
+        elif status == 'offline':
+            self.logMsg(
+                None,
+                u"未检测到UE监听（{0}），已跳过自动导入提示，不影响本次发布".format(address),
+                "unchecked",
+            )
+        elif status == 'rejected':
+            self.logMsg(
+                None,
+                u"UE拒绝了动作通知：{0}（不影响Maya发布）".format(
+                    result.get('message') or u"未提供原因"),
+                "failed",
+            )
+        else:
+            self.logMsg(
+                None,
+                u"UE通知发生错误：{0}（不影响Maya发布）".format(
+                    result.get('message') or u"未知错误"),
+                "failed",
+            )
 
     def _publishOneAction(self, info, Pub=None):
         """ 发布单个动作（保存到动作库路径）
@@ -2502,9 +2852,9 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         if not path:
             self.logMsg(None, u"{0}：无法从Reference路径解析发布目录，已跳过".format(label), "failed")
             return False
+        filePath = '%s/%s_%s.ma' % (path, characterName, actionName)
         try:
             Pub.makePath(path)
-            filePath = '%s/%s_%s.ma' % (path, characterName, actionName)
             cmds.file(rename=filePath)
             cmds.file(save=True, type='mayaAscii')
             self.logMsg(None, u"{0} 已发布：{1}".format(label, filePath), "succeed")
@@ -2517,6 +2867,18 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         fbx_path = self._export_one_fbx(info, start, end, path)
         if fbx_path:
             self._last_published_fbx.append(fbx_path)
+            try:
+                self._last_published_actions.append(
+                    self._build_ue_action_record(info, start, end, filePath, fbx_path)
+                )
+            except Exception as error:
+                # FBX 已经发布成功，UE 元数据整理失败只能影响自动提示，不能把动作
+                # 发布改判为失败，也不能中断同一批后续动作的发布。
+                self.logMsg(
+                    None,
+                    u"{0} UE通知数据整理失败：{1}（不影响FBX发布）".format(label, error),
+                    "failed",
+                )
 
         return ok
 
@@ -2782,7 +3144,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         根据 project,type 得到 asset_list, type_path
         """
         currentProj = self.ui.publishProj_comb.currentText()
-        currentType = self.ui.publishType_comb_sc.currentText()
+        currentType = self.ui.publishType_comb_sc.currentText().strip()
         type_path = '{0}/{1}/Scenes/{2}'.format(self.projectSetting()['rootPath'], currentProj, currentType)
         directory = QtCore.QDir(type_path)
         asset_list = directory.entryList(QtCore.QDir.NoDotAndDotDot | QtCore.QDir.AllEntries,

@@ -19,7 +19,7 @@ Maya 场景添加任何东西**。
   * 防抖 200ms + 去重。
 
 drop-in 接口:clear() / setTitle() / setPreviewPixmap() / playerEnabled()。
-回退到旧 icon 预览只需把 assetTools_optimized.py 改回 previewWidget.PreviewWidget()。
+回退到旧 icon 预览只需把 assetTools.py 改回 previewWidget.PreviewWidget()。
 """
 
 import os

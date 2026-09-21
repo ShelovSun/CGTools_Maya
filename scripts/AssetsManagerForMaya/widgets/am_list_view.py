@@ -338,9 +338,9 @@ class ListView(QtWidgets.QListView):
             item = self.itemFromIndex(self._model.index(row, 0))
             if isinstance(item, ListItemOptimized):
                 visible_items.append(item)
-                path = item.thumbnailPath()
-                if path:
-                    keep_paths.add(path)
+                for path in item.thumbnailPaths():
+                    if path:
+                        keep_paths.add(path)
 
         # 取消可见区之外仍在排队的加载，让线程池立刻处理可见区
         # （被取消的 worker 会在 run() 开头即返回，几微秒内腾出线程）。
@@ -348,10 +348,9 @@ class ListView(QtWidgets.QListView):
 
         # 加载可见区条目；对此前被取消、卡在“加载中”状态的条目先复位再请求。
         for item in visible_items:
-            if item.isThumbnailLoaded():
-                continue
             if item.isThumbnailLoading() and not self._thumbnail_loader.isPending(item.thumbnailPath()):
                 item.resetThumbnail()  # 之前的请求已被取消，允许重新加载
+            # 即使主图已加载也调用：多皮肤小图可能曾在快速滚动时被取消，需要补交。
             item.loadThumbnail()
 
     def mouseMoveEvent(self, event):

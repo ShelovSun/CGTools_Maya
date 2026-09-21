@@ -36,7 +36,7 @@ Maya 视口；而 modelPanel 永远渲染「当前 Maya 场景」的 DAG，没�
     Maya 自身的右键/marking-menu 截走(v1 接受)。
   * cmds.file 导入只能主线程，单个大 FBX 仍会有可感知停顿(已用防抖+去重缓解)。
 
-回退：把 sources/assetTools_optimized.py 里构造预览控件的那行从
+回退：把 sources/assetTools.py 里构造预览控件的那行从
 PreviewFbxWidget 改回 previewWidget.PreviewWidget() 即可。
 """
 
@@ -65,7 +65,7 @@ class PreviewFbxWidget(QtWidgets.QWidget):
     """资产 FBX 三维预览控件（drop-in 替换 PreviewWidget）。
 
     对外暴露与 PreviewWidget 相同的接口：clear() / setTitle() /
-    setPreviewPixmap() / playerEnabled()，故 assetTools_optimized 现有调用无需改动。
+    setPreviewPixmap() / playerEnabled()，故 assetTools 现有调用无需改动。
     """
 
     def __init__(self, isPlayer=True):
@@ -189,7 +189,7 @@ class PreviewFbxWidget(QtWidgets.QWidget):
     def _deriveFbxPath(self, icon_path, name):
         """由 icon 路径 + 资产名拼出 FBX 路径。
 
-        约定同 assetTools_optimized.detailPath()：root = icon.split("Icon")[0]，
+        约定同 assetTools.detailPath()：root = icon.split("Icon")[0]，
         例 icon=.../ZangJinQiangYu/Icon/ZangJinQiangYu.png →
             fbx =.../ZangJinQiangYu/FBX/ZangJinQiangYu.fbx
         """

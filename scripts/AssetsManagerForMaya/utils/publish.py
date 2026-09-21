@@ -365,48 +365,117 @@ class Publish(object):
         self.repathNormalMap(path)
 
     @staticmethod
-    def create_new_folder(parent, path):
+    def create_folder(parent, path, folder_name, fixed_subdir=None, allow_existing=False):
+        """按“新建文件夹”功能的规则创建一层目录。
+
+        这个无弹窗入口供已经从其他控件取得文件夹名的功能复用，例如发布工具
+        Scene 页签里手动输入的新类型。这样右键“新建文件夹”和发布工具不会各自
+        维护一套不同的路径安全规则。
+
+        Args:
+            parent: 警告弹窗所属的 Qt 父窗口。
+            path: 创建目录的根路径。
+            folder_name: 只包含一层的文件夹名。
+            fixed_subdir: 可选的固定子目录，例如 ``Scenes``。
+            allow_existing: 目标文件夹已经存在时是否视为成功。
+
+        Returns:
+            bool: 目录存在或创建成功时返回 ``True``，否则返回 ``False``。
         """
-        创建新的文件夹
+        from my_vendor.Qt import QtWidgets
+
+        folder_name = folder_name.strip()
+        if not folder_name:
+            QtWidgets.QMessageBox.warning(parent, u'提示', u'请输入文件夹名字')
+            return False
+
+        # 只允许一层文件夹名，防止使用 ../ 或绝对路径逃离指定的 Scenes 目录。
+        invalid_chars = u'\\/:*?"<>|'
+        if folder_name in (u'.', u'..') or any(char in folder_name for char in invalid_chars):
+            QtWidgets.QMessageBox.warning(
+                parent,
+                u'提示',
+                u'文件夹名不能包含 \\ / : * ? " < > | 等路径字符',
+            )
+            return False
+
+        target_root = os.path.join(path, fixed_subdir) if fixed_subdir else path
+        target_path = os.path.join(target_root, folder_name)
+        if os.path.exists(target_path):
+            if allow_existing and os.path.isdir(target_path):
+                return True
+            QtWidgets.QMessageBox.warning(parent, u'提示', u'文件夹已存在')
+            return False
+
+        try:
+            os.makedirs(target_path)
+        except OSError as error:
+            QtWidgets.QMessageBox.warning(
+                parent, u'提示', u'创建文件夹失败：{0}'.format(error)
+            )
+            return False
+        return True
+
+    @staticmethod
+    def create_new_folder(parent, path, fixed_subdir=None):
+        """创建新文件夹。
+
+        Args:
+            parent: 弹窗所属的 Qt 父窗口。
+            path: 创建目录的根路径。
+            fixed_subdir: 可选的固定子目录。指定后，弹窗会显示不可编辑的
+                ``<fixed_subdir>\\`` 前缀，并且文件夹实际只会创建在该子目录下。
+
+        Returns:
+            str or None: 创建成功时返回新文件夹名，取消时返回 ``None``。
         """
         from my_vendor.Qt import QtCore
         from my_vendor.Qt import QtWidgets
         Dialog = QtWidgets.QDialog(parent)
-        Dialog.resize(390, 95)
-        Dialog.setWindowTitle(u"Create Folder")
+        Dialog.resize(420, 105)
+        Dialog.setWindowTitle(u"新建文件夹")
 
         label = QtWidgets.QLabel(Dialog)
         label.setText(u"新建文件夹名字：")
 
-        password_lineEdit = QtWidgets.QLineEdit(Dialog)
+        folder_lineEdit = QtWidgets.QLineEdit(Dialog)
+        folder_lineEdit.setPlaceholderText(u"请输入文件夹名字")
         bttnBox = QtWidgets.QDialogButtonBox(Dialog)
         bttnBox.setOrientation(QtCore.Qt.Horizontal)
-        bttnBox.setStandardButtons(QtWidgets.QDialogButtonBox.Cancel | QtWidgets.QDialogButtonBox.Ok)
+        bttnBox.setStandardButtons(
+            QtWidgets.QDialogButtonBox.Cancel | QtWidgets.QDialogButtonBox.Ok
+        )
         lay = QtWidgets.QGridLayout(Dialog)
         lay.setContentsMargins(10, 5, 10, 10)
         lay.addWidget(label, 0, 0, 1, 2)
-        lay.addWidget(password_lineEdit, 1, 1, 1, 1)
-        lay.addWidget(bttnBox, 2, 1, 1, 1)
+
+        if fixed_subdir:
+            # 这个 QLabel 是不可编辑的路径前缀，用户只能输入 Scenes 下的文件夹名。
+            fixed_prefix_label = QtWidgets.QLabel(Dialog)
+            fixed_prefix_label.setText(u"{0}\\".format(fixed_subdir))
+            lay.addWidget(fixed_prefix_label, 1, 0, 1, 1)
+            lay.addWidget(folder_lineEdit, 1, 1, 1, 1)
+        else:
+            # 保持其他调用者（如 Action）的原有用法不变。
+            lay.addWidget(folder_lineEdit, 1, 0, 1, 2)
+
+        lay.addWidget(bttnBox, 2, 0, 1, 2)
+
+        created_folder = [None]
 
         def _addFolder():
-            folder_name = password_lineEdit.text()
-            target_path = '{0}/{1}'.format(path, folder_name)
-            if os.path.exists(target_path):
-                QtWidgets.QMessageBox.warning(Dialog, u'提示', u'文件夹已存在')
+            folder_name = folder_lineEdit.text().strip()
+            if not Publish.create_folder(Dialog, path, folder_name, fixed_subdir=fixed_subdir):
                 return False
-            else:
-                os.makedirs(target_path)
-                Dialog.close()
-                return True
 
-        result = bttnBox.accepted.connect(lambda: _addFolder())
+            created_folder[0] = folder_name
+            Dialog.accept()
+            return True
+
+        bttnBox.accepted.connect(_addFolder)
         bttnBox.rejected.connect(Dialog.reject)
         Dialog.exec_()
-
-        if result:
-            return password_lineEdit.text()
-        else:
-            return None
+        return created_folder[0]
 
     @staticmethod
     def repathNormalMap(path):

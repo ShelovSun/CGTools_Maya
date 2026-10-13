@@ -413,12 +413,15 @@ class ItemsWidget(QtWidgets.QWidget):
         self._table_widget.itemSelectionChanged.connect(self._onSelectionChanged)
         self._table_widget.dragLeaveSignal.connect(self.dragLeaveSignal.emit)
 
-        # 右键菜单：两个子视图都启用自定义右键，并把信号上抛到 ItemsWidget
-        # （QListView / QTableWidget 都从 QWidget 继承了 customContextMenuRequested 信号）
+        # 子视图的右键位置是 viewport 坐标，上抛前转换到 ItemsWidget 坐标。
         self._list_view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self._table_widget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self._list_view.customContextMenuRequested.connect(self.customContextMenuRequested)
-        self._table_widget.customContextMenuRequested.connect(self.customContextMenuRequested)
+        self._list_view.customContextMenuRequested.connect(
+            lambda point: self._forwardContextMenu(self._list_view, point)
+        )
+        self._table_widget.customContextMenuRequested.connect(
+            lambda point: self._forwardContextMenu(self._table_widget, point)
+        )
 
         # 布局
         layout = QtWidgets.QStackedLayout(self)
@@ -429,6 +432,10 @@ class ItemsWidget(QtWidgets.QWidget):
 
         # 默认显示图标模式
         self.setViewMode(self.IconMode)
+
+    def _forwardContextMenu(self, view, point):
+        """将子视图的 viewport 坐标转换为本控件坐标后发出右键信号。"""
+        self.customContextMenuRequested.emit(view.viewport().mapTo(self, point))
 
     def setViewMode(self, mode):
         """设置视图模式"""
@@ -510,11 +517,11 @@ class ItemsWidget(QtWidgets.QWidget):
             return self._list_view.itemCount()
 
     def itemAt(self, point):
-        """获取指定位置的 item"""
-        if self._is_list:
-            return self._table_widget.itemAt(point)
-        else:
-            return self._list_view.itemAt(point)
+        """获取本控件坐标下的 item，与右键信号使用同一坐标系。"""
+        view = self.currentWidget()
+        if view is None:
+            return None
+        return view.itemAt(view.viewport().mapFrom(self, point))
 
     def selectedItems(self):
         """获取选中的 items"""

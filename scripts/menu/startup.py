@@ -4,16 +4,13 @@ import os
 import sys
 import json
 
-import maya.mel as mel
-import pymel.core as pm
-
 sm_temp = "{}/ShotManagerTemp".format(os.environ.get('APPDATA'))
 SM_SETTING_JSON = "{}/setting.json".format(sm_temp)
 scriptsPathIn = os.path.split(os.path.realpath(__file__))[0].replace('\\', '/')
 scriptsPath = scriptsPathIn.replace('/menu', '')
 scriptsPathOut = scriptsPathIn.replace('/for_Maya/menu', '')
+bundled_packages = r"%s/Python/Python37/Lib/site-packages" % scriptsPath
 work_paths = [scriptsPath, scriptsPathIn,
-              r"%s/Python/Python37/Lib/site-packages" % scriptsPath,
               r"%s/AssetsManagerForMaya" % scriptsPath,
               r"%s/ShotsManagerForMaya" % scriptsPath,
               r"%s/lib/site-packages" % scriptsPathOut,
@@ -34,6 +31,16 @@ work_paths = [scriptsPath, scriptsPathIn,
 for work_path in work_paths:
     if work_path not in sys.path:
         sys.path.append(work_path)
+
+# 优先使用项目捆绑的 Maya 2022 / Python 3.7 依赖，避免 Maya 或其他插件安装的
+# charset_normalizer 二进制扩展加载失败。必须在导入 pymel 及工具模块之前设置。
+if os.path.isdir(bundled_packages):
+    if bundled_packages in sys.path:
+        sys.path.remove(bundled_packages)
+    sys.path.insert(0, bundled_packages)
+
+import maya.mel as mel
+import pymel.core as pm
 
 # from pyblish_qml import api
 #

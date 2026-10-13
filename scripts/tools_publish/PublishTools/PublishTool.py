@@ -25,6 +25,7 @@ from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 from shiboken2 import wrapInstance
 from utils import jsonHelper, publish, sequenceplayer, pose, animation, sm_notify
 from config import projectSetting, SMConfig
+from config.action_paths import action_library_path
 from widgets import imagesequence
 
 # reload(publish)
@@ -1689,12 +1690,10 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         # elif publishType == "Animation":
         #     publish_path = "{0}/{1}/{2}/{2}_{3}.anim".format(self.ROOT, projectName, characterName, actionName)
         # 范例：Y:\MCCProject\StudioLibrary_Ani\IM\BossQ\BossQ_AK_walk.anim
-        path = '%s/%s/%s/%s/%s/%s' % (self.projectSetting()['rootPath'],
-                                projectName,
-                                self.projectSetting()['assetFolder'],
-                                "Characters",
-                                characterName,
-                                self.projectSetting()['actionFolder'])
+        settings = self.projectSetting()
+        asset_path = '%s/%s/%s/%s/%s' % (
+            settings['rootPath'], projectName, settings['assetFolder'], "Characters", characterName)
+        path = action_library_path(asset_path, settings)
         start = int(self.ui.start_lineEdit.text())
         end = int(self.ui.end_lineEdit.text())
         if start >= end:
@@ -1983,7 +1982,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         Pub = publish.Publish()
         Pub.makePath(path)
-        Pub.makePath(str('%s/Action' % (path)))
+        Pub.makePath(action_library_path(path, self.projectSetting()))
         self.ui.log_progressBar.setVisible(True)
         self._log = "log:"
         self.ui.log_treeWgt.clear()
@@ -2090,7 +2089,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
         Pub = publish.Publish()
         Pub.makePath(path)
-        Pub.makePath(str('%s/Action' % (path)))
+        Pub.makePath(action_library_path(path, self.projectSetting()))
         self._log = "log:"
         self.ui.log_treeWgt.clear()
         self.ui.log_progressBar.setVisible(True)
@@ -2644,9 +2643,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
         例如 Reference 路径为：
             Y:/MCCProject/GOF/Assets/Props/BiShouB//Rig/BiShouB_hi_rig.ma
-        资产根目录取到 .../Assets/<类型>/<资产名>，即 .../Assets/Props/BiShouB，
-        动作库路径即：
-            Y:/MCCProject/GOF/Assets/Props/BiShouB/Action
+        保留资产 Reference 的实际项目路径，动作库改存到同项目的 Animations：
+            Y:/MCCProject/GOF/Animations/Props/BiShouB/Action
 
         :rtype: str  解析失败返回None
         """
@@ -2654,18 +2652,9 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             return None
         try:
             ref_path = cmds.referenceQuery(refNode, filename=True, withoutCopyNumber=True)
-        except RuntimeError:
+        except (RuntimeError, TypeError):
             return None
-        parts = ref_path.replace('\\', '/').split('/')
-        asset_folder = self.projectSetting()['assetFolder']  # 一般为 "Assets"
-        if asset_folder not in parts:
-            return None
-        idx = parts.index(asset_folder)
-        # 取到 Assets/<类型>/<资产名> 这一层作为资产根目录
-        if len(parts) < idx + 3:
-            return None
-        asset_root = '/'.join(parts[:idx + 3])
-        return '{0}/{1}'.format(asset_root, self.projectSetting()['actionFolder'])
+        return action_library_path(ref_path, self.projectSetting()) or None
 
     def _ref_namespace(self, refNode):
         """ 取得reference的命名空间（不含前导冒号），失败返回None """

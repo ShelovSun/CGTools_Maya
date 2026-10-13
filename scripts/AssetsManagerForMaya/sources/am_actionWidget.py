@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """AssetActionWidget —— 资产动作浏览器(置于右侧 Reference Switch 下方)。
 
-递归列出资产 ``Action`` 目录下的所有 ``.fbx`` 动作文件。点击某动作 -> 发 actionActivated,
+递归列出对应动作库 ``Action`` 目录下的所有 ``.fbx`` 动作文件。点击某动作 -> 发 actionActivated,
 由主面板通知 PreviewGLWidget 把该动作的骨骼动画套用到绑定文件上循环播放。
 
-约定:绑定文件位于 ``.../<asset>/FBX/<asset>.fbx``,动作目录为把路径中的 ``/FBX/`` 换成
-``/Action/`` 后的目录(``.../<asset>/Action``)。动作文件一般只含骨骼动画、无网格。
+约定:绑定文件位于 ``.../Assets/<类型>/<asset>/FBX/<asset>.fbx``,动作目录位于
+``.../Animations/<类型>/<asset>/Action``。动作文件一般只含骨骼动画、无网格。
 """
 
 import datetime
@@ -15,6 +15,9 @@ import os
 from PySide2 import QtCore
 from PySide2 import QtGui
 from PySide2 import QtWidgets
+
+from config import projectSetting
+from config.action_paths import action_library_path
 
 __all__ = ["AssetActionWidget"]
 
@@ -92,7 +95,7 @@ class AssetActionWidget(QtWidgets.QWidget):
         self._list.blockSignals(False)
 
     def setAsset(self, rig_fbx_path):
-        """根据绑定文件路径(.../FBX/<asset>.fbx)填充其 Action 目录下的动作列表(递归)。"""
+        """根据资产绑定文件路径，递归列出 Animations 下对应的动作库。"""
         self._search.blockSignals(True)
         self._search.clear()
         self._search.blockSignals(False)
@@ -132,16 +135,8 @@ class AssetActionWidget(QtWidgets.QWidget):
 
     # ------------------------------------------------------------------ 内部
     def _derive_action_dir(self, rig_fbx_path):
-        """绑定文件路径 -> 动作目录:把 '/FBX/' 换成 '/Action/' 取所在目录。
-        无 '/FBX/' 锚点时回退到资产根下的 'Action'。"""
-        if not rig_fbx_path:
-            return ""
-        p = rig_fbx_path.replace("\\", "/")
-        if "/FBX/" in p:
-            return os.path.dirname(p.replace("/FBX/", "/Action/", 1))
-        # 回退:.../<asset>/<file>.fbx -> .../<asset>/Action
-        root = os.path.dirname(os.path.dirname(p))
-        return (root + "/Action") if root else ""
+        """资产绑定文件路径 -> 同项目 Animations 下的动作目录。"""
+        return action_library_path(rig_fbx_path, projectSetting())
 
     def _scan_actions(self, action_dir):
         """递归收集 .fbx，返回相对路径、全路径、修改时间戳和字节数。"""

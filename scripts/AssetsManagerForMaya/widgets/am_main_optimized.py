@@ -41,14 +41,17 @@ class MainStackedWidget(QtWidgets.QStackedWidget):
         self._items_widget.itemSelectionChanged.connect(self.itemSelectionChanged.emit)
         self._items_widget.dragLeaveSignal.connect(self.dragLeaveSignal.emit)
         # 右键菜单上抛：子视图 -> ItemsWidget -> MainStackedWidget
-        # （QStackedWidget 从 QWidget 继承了 customContextMenuRequested 信号）
-        self._items_widget.customContextMenuRequested.connect(self.customContextMenuRequested)
+        self._items_widget.customContextMenuRequested.connect(self._forwardContextMenu)
 
         # 设置当前视图模式
         self._items_widget.setIsList(islist)
 
         # 添加到堆叠布局
         self.addWidget(self._items_widget)
+
+    def _forwardContextMenu(self, point):
+        """将 ItemsWidget 坐标转换为主控件坐标后发出右键信号。"""
+        self.customContextMenuRequested.emit(self._items_widget.mapTo(self, point))
 
     def setItemsWidget(self, widget):
         """设置外部关联的 items widget（用于兼容旧代码）"""
@@ -75,19 +78,8 @@ class MainStackedWidget(QtWidgets.QStackedWidget):
         return self._items_widget.itemCount()
 
     def itemAt(self, point):
-        """获取指定位置的 item。
-
-        ``customContextMenuRequested`` 给出的是 MainStackedWidget 坐标，而 QListView /
-        QTableWidget.itemAt() 要求 viewport 坐标。特别是表格还有表头，直接透传会
-        把右键行判错甚至当成空白处。
-        """
-        view = self._items_widget.currentWidget()
-        if view is None:
-            return None
-        viewport = view.viewport() if hasattr(view, "viewport") else view
-        global_point = self.mapToGlobal(point)
-        viewport_point = viewport.mapFromGlobal(global_point)
-        return view.itemAt(viewport_point)
+        """获取主控件坐标下的 item，与右键信号使用同一坐标系。"""
+        return self._items_widget.itemAt(self._items_widget.mapFrom(self, point))
 
     def selectedItems(self):
         """获取选中的 items"""

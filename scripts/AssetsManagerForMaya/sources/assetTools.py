@@ -17,6 +17,7 @@ from PySide2 import QtWidgets
 from shiboken2 import wrapInstance
 
 from config import projectSetting, SMConfig
+from config.action_paths import action_library_path
 from utils import jsonHelper, publish, messageBox
 from utils.am_database import AssetDatabaseManager
 from sources import am_actionWidget
@@ -2525,17 +2526,28 @@ class AssetToolsUI(QtWidgets.QWidget):
 
     @staticmethod
     def make_dirs(db, asset_type, asset_name):
-        """创建目录"""
-        path = "Y:/MCCProject/{0}/Assets/{1}/{2}".format(db, asset_type, asset_name)
+        """创建资产目录，并在同项目的 Animations 下创建对应动作库。"""
+        settings = projectSetting() or {}
+        path = "{0}/{1}/{2}/{3}/{4}".format(
+            settings.get("rootPath", "Y:/MCCProject"),
+            db,
+            settings.get("assetFolder", "Assets"),
+            asset_type,
+            asset_name,
+        )
         if not os.path.exists(path):
             os.makedirs(path)
 
-        folders = ["/Action", "/Design", "/FBX", "/Icon", "/Image",
+        folders = ["/Design", "/FBX", "/Icon", "/Image",
                    "/Mod", "/Original", "/Rig", "/Texture"]
         for folder in folders:
             folder_path = path + folder
             if not os.path.exists(folder_path):
                 os.makedirs(folder_path)
+
+        action_path = action_library_path(path, settings)
+        if action_path and not os.path.exists(action_path):
+            os.makedirs(action_path)
 
     @staticmethod
     def make_scene_dirs(db, _type, name):

@@ -3,6 +3,7 @@
   "mayaFormat": "ma",
   "rootPath": "Y:/MCCProject",
   "assetFolder": "Assets",
+  "animationFolder": "Animations",
   "scenesFolder": "Scenes",
   "type": ["Characters", "Props"],
   "iconFolder": "Icon",
@@ -22,5 +23,5 @@
   "xgenFileFolder": "Xgen",
   "xgenFile": "xgen",
   "assembly": "Assembly",
-  "assemblyFile": "AD",
+  "assemblyFile": "AD"
 }

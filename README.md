@@ -124,13 +124,23 @@ CGTools_for_Maya/
 
 ### 如需手动补充依赖
 
-若捆绑目录缺失，可使用 Maya 自带的 Python 安装：
+若捆绑目录缺失，可使用 Maya 自带的 Python 安装，并固定兼容 Maya 2022 的版本：
 
 ```bash
-"C:/Program Files/Autodesk/Maya2022/bin/mayapy.exe" -m pip install requests psycopg2-binary -t "E:/CGTools_for_Maya/scripts/Python/Python37/Lib/site-packages"
+"C:/Program Files/Autodesk/Maya2022/bin/mayapy.exe" -m pip install requests==2.28.1 charset-normalizer==2.1.1 psycopg2-binary==2.9.5 -t "E:/CGTools_for_Maya/scripts/Python/Python37/Lib/site-packages"
 ```
 
 > 若 `mayapy` 没有 `pip`，先执行 `mayapy -m ensurepip`。
+
+### 安装时出现 charset_normalizer 的 DLL 加载错误
+
+若报错路径指向 `Maya2022/Python37/lib/site-packages/charset_normalizer`，说明加载了
+Maya 安装目录中的版本，其二进制扩展或依赖的 DLL 未能加载。
+CGTools 已捆绑纯 Python 的 `charset_normalizer 2.1.1`；`scripts/menu/startup.py`
+会在导入 `pymel` 之前，将捆绑依赖目录放到 `sys.path` 首位。
+
+更新启动脚本并确认捆绑依赖目录完整后，重启 Maya 再加载 CGTools。
+已导入的 Python 模块会被缓存，仅更新菜单不能替换当前会话中已加载的依赖。
 
 ---
 

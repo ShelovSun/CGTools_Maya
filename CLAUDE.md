@@ -30,12 +30,12 @@ Entry point: `AssetsManager_Maya.showWindow()` → `AssetsManagerUI` (a `MayaQWi
 - **`utils/`** — Maya/IO helpers (`jsonHelper`, `publish`, `am_database`, `copy_thread`, plus a `gui/` subpackage and several files lifted from StudioLibrary: `mirrortable`, `pose`, `playblast`, `animation`).
 - **`config/`** — `config.__init__` exposes `projectSetting()`, `am_Temp()`, `sm_Temp()`, and the `SMConfig` ini-settings class.
 
-**Data backend**: PostgreSQL via `psycopg2` (bundled under `scripts/Python/Python37/Lib/site-packages`), connecting to a studio DB host (default `10.0.203.34`, port 5432); assets/scenes also resolve to network file paths. There is no local DB — running the tools requires the studio environment.
+**Data backend**: PostgreSQL via `psycopg2` (bundled under `scripts/Python/Python37/Lib/site-packages`), connecting to the `host` in `Y:/MCCTools/config/ShotManager_config/commonSetting.json` (currently DNS name `smnas.diandian.info`, port 5432). All database entry points use this shared configuration, not the local `prefs.ini` `General/ip`. Asset review notifications receive the same host from PublishTool and use TCP port 12345. Assets/scenes also resolve to network file paths. There is no local DB — running the tools requires the studio environment.
 
 ## Configuration & runtime state
 
-- **`config/projectSetting.json`** is the pipeline contract: it defines `rootPath`, `projects`, `user_list`, and the folder/file naming for every asset type (`assetFolder`, `rigFileHi`, `actionFolder`, `assembly`, etc.). Code reads paths through these keys rather than hardcoding — changing the on-disk layout means editing this file, not the Python.
-- On first run the JSON is copied to a per-user temp dir; runtime/user settings live in `%APPDATA%/AssetsManagerTemp` and `%APPDATA%/ShotManagerTemp` (`setting.json`, ini files via `SMConfig`), plus Qt `QSettings` for window geometry.
+- **`Y:/MCCTools/config/ShotManager_config/commonSetting.json`** is the shared runtime pipeline contract, loaded by `config.projectSetting()`: it defines `host`, `rootPath`, `projects`, `user_list`, and the folder/file naming for every asset type (`assetFolder`, `rigFileHi`, `actionFolder`, `assembly`, etc.). Change the shared configuration when changing the database host or pipeline layout.
+- Per-user login/preferences and legacy project settings live in `%APPDATA%/AssetsManagerTemp` and `%APPDATA%/ShotManagerTemp` (`setting.json`, ini files via `SMConfig`), plus Qt `QSettings` for window geometry. The current database host is read directly from the shared configuration above.
 
 ## Cython modules
 

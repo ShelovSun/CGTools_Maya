@@ -120,7 +120,7 @@ CGTools_for_Maya/
 
 ### 外部基础设施
 
-- **PostgreSQL 数据库**：默认连接 `10.0.203.34:5432`，资产与镜头数据存储于服务端。运行工具前需确保网络可达。
+- **PostgreSQL 数据库**：服务器地址统一读取 `Y:/MCCTools/config/ShotManager_config/commonSetting.json` 的 `host`，当前使用 DNS 名 `smnas.diandian.info`，端口为 `5432`。资产与镜头数据存储于服务端，运行工具前需确保网络可达。发布审核通知使用同一 `host`，端口为 `12345`；本机 `prefs.ini` 的 `General/ip` 不再用于数据库连接。
 
 ### 如需手动补充依赖
 

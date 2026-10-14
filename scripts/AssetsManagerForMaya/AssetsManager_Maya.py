@@ -109,7 +109,7 @@ class AssetsManagerUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.isMini = False
         self.readSettings()
 
-        self.host = SMConfig().getPrefsValue("General/ip", "10.0.203.34")
+        self.host = projectSetting()["host"]
         try:  # 优先读取am_maya自己的登录设置，读取失败再读取SMConfig的设置（兼容之前版本的登录设置）
             self.user = self.readLoginSetting()['user']
             self.password = self.readLoginSetting()['password']

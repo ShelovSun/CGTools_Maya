@@ -3,7 +3,7 @@
 # sm_notify —— Maya 端向独立版 ShotManager 发送"资产提交审核"广播消息。
 #
 # 复用独立版 ShotManager 现成的中心服务器广播通讯系统:
-#   服务器 10.0.203.34:12345 (纯 TCP; 与 PostgreSQL 5432 无关)。
+#   服务器地址由调用方从 commonSetting.json 的 host 传入，端口 12345 (纯 TCP)。
 #   任何进程连上 -> 发登录帧(用户名) -> 发业务帧, 服务器即原样广播给所有在线客户端。
 #   协议: [10 字节左对齐长度头][utf-8 载荷]; 载荷 6 段 code|sender|db|shot|task|link。
 #
@@ -17,8 +17,7 @@ import time
 import socket
 import threading
 
-# 消息服务器地址 (与独立版 bin/sm_client.py 一致)
-IP = "10.0.203.34"
+# 消息服务器端口 (与独立版 bin/sm_client.py 一致)
 PORT = 12345
 HEADER_LENGTH = 10
 
@@ -42,12 +41,12 @@ def _clean(value):
     return str(value).replace("|", "/")
 
 
-def _send(sender, db, asset, path, timeout):
+def _send(sender, db, asset, path, host, timeout):
     """ 同步发送: 连接 -> 登录帧 -> 业务帧 -> 关闭。异常向上抛给 run() 静默处理。 """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
-        sock.connect((IP, PORT))
+        sock.connect((host, PORT))
         # 登录帧: 服务器把第一帧当用户名(独立版忽略它, 仅供服务器识别连接)
         sock.sendall(_frame(_clean(sender)))
         # 业务帧: 1002|提交者|项目db|资产提交|资产名|真实路径
@@ -64,18 +63,19 @@ def _send(sender, db, asset, path, timeout):
             pass
 
 
-def notify_asset_published(sender, db, asset, path, timeout=3.0):
+def notify_asset_published(sender, db, asset, path, host, timeout=3.0):
     """ 在后台线程发一条"资产提交审核"广播, 全程静默失败, 立即返回、不阻塞 Maya。
 
     :param sender: 提交者(显示用), 一般传当前登录美术师名
     :param db:     项目代号(显示用)
     :param asset:  资产名(显示用)
     :param path:   发布真实路径(接收端面板可点击打开)
+    :param host:   commonSetting.json 中的服务器地址，与发布工具的数据库地址一致
     :param timeout: socket 超时秒数
     """
     def run():
         try:
-            _send(sender, db, asset, path, timeout)
+            _send(sender, db, asset, path, host, timeout)
         except Exception as e:
             print("[sm_notify] 通知 ShotManager 失败(已忽略):", e)
 

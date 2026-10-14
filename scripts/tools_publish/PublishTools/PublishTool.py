@@ -1950,7 +1950,9 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     def _notify_shotmanager(self, projectName, assetName, path):
         """ 发布成功后, 向独立版 ShotManager 发一条"资产提交审核"广播(后台线程, 静默失败)。 """
         try:
-            sm_notify.notify_asset_published(self.user, projectName, assetName, path)
+            sm_notify.notify_asset_published(
+                self.user, projectName, assetName, path, host=self.host
+            )
         except Exception as e:
             print("[PublishTool] 通知 ShotManager 失败(已忽略):", e)
 

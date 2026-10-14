@@ -16,7 +16,7 @@ from PySide2 import QtGui
 from PySide2 import QtWidgets
 from shiboken2 import wrapInstance
 
-from config import projectSetting, SMConfig
+from config import projectSetting
 from config.action_paths import action_library_path
 from utils import jsonHelper, publish, messageBox
 from utils.am_database import AssetDatabaseManager
@@ -50,7 +50,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.mayaMainWindow = maya_main_window()
         self.mayaMainWindow.setAcceptDrops(True)
 
-        self.host = SMConfig().getPrefsValue("General/ip", "10.0.203.34")
+        self.host = projectSetting()["host"]
         self.user = user
         self.password = password
 

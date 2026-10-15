@@ -60,6 +60,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.Pub = publish.Publish()
         self.tab = "Assets"
         self.isList = False
+        self._current_sort = (0, True)  # 与 UE 版一致：默认日期降序，最新在前。
         self.isAction = False
         self.isAttributeShow = True
         self.currentAssetData = {}
@@ -266,6 +267,13 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.refresh_Bttn.setIconSize(QtCore.QSize(22, 22))
         self.refresh_Bttn.setFlat(True)
         horizontalLayout.addWidget(self.refresh_Bttn)
+
+        self.sort_bttn = QtWidgets.QToolButton()
+        self.sort_bttn.setFixedSize(25, 25)
+        self.sort_bttn.setIconSize(QtCore.QSize(22, 22))
+        self.sort_bttn.setToolTip(u"排序")
+        self.sort_bttn.setAutoRaise(True)
+        horizontalLayout.addWidget(self.sort_bttn)
 
         horizontalLayout.addItem(QtWidgets.QSpacerItem(
             40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum))
@@ -688,6 +696,8 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.download_Bttn.clicked.connect(self.download_asset)
         self.refresh_Bttn.setIcon(QtGui.QPixmap('%s/icon/refresh.png' % self.scriptsPath))
         self.refresh_Bttn.clicked.connect(self.refresh_asset)
+        self.sort_bttn.setIcon(QtGui.QIcon('%s/icon/sort.png' % self.scriptsPath))
+        self.sort_bttn.clicked.connect(self.sort_asset_ui)
         self.key_line.returnPressed.connect(self.search_asset)
         self.key_line.addAction(
             QtGui.QIcon('%s/icon/search.png' % self.scriptsPath),
@@ -703,6 +713,9 @@ class AssetToolsUI(QtWidgets.QWidget):
             islist=self.isList
         )
         self.ui_main_wgt.setItemsWidget(self)
+        self.ui_main_wgt.sortRequested.connect(self._do_sort)
+        self.ui_main_wgt.rowDataChanged.connect(self._onItemDataChanged)
+        self.ui_main_wgt.sortItems(*self._current_sort)
         self.ui_main_wgt.dragLeaveSignal_connect(self.mainWgtItemDragLeaved)
         self.ui_main_wgt.itemSelectionChanged_connect(self.mainWightItemChanged)
         self.ui_main_wgt.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
@@ -1185,6 +1198,7 @@ class AssetToolsUI(QtWidgets.QWidget):
     def show_asset(self, data=None):
         """显示资产/场景 - 按左侧目录选中范围 (tab, type) 分派查询"""
         self.ui_main_wgt.clear()
+        self.ui_main_wgt.setItemsList([])
         self.scene_int_listWgt.clear()
         self._scene_components_base = ""
         self._scene_components_item = None
@@ -1220,6 +1234,8 @@ class AssetToolsUI(QtWidgets.QWidget):
         # 批量添加到显示
         for row in batch:
             self.ui_main_wgt.addItem(row)
+        self.ui_main_wgt.setItemsList(self._asset_cache)
+        self.ui_main_wgt.sortItems(*self._current_sort)
 
     def _onQueryError(self, error):
         """查询错误"""
@@ -1237,11 +1253,52 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.ui_main_wgt.resizeItem()
         self.infoMsg("info", f"加载到{total}个资产")
 
+    def _onItemDataChanged(self, old_data, new_data):
+        """保存编辑后同步查询缓存和预览标题。"""
+        self._asset_cache = [
+            new_data if row == old_data else row for row in self._asset_cache
+        ]
+        selected = self.ui_main_wgt.selectedItems()
+        if selected and selected[0].itemData() == new_data:
+            self.preview.setTitle(new_data[1], new_data[2])
+
     # ============ 其他方法保持不变 ============
 
     def get_keywords(self):
         """获取关键词"""
         return [self.key_line.text().strip()]
+
+    def sort_asset_ui(self):
+        """与 UE 版相同的八项排序菜单，当前项显示升/降序图标。"""
+        menu = QtWidgets.QMenu(self)
+        current_column, reverse = self._current_sort
+        sort_icon = QtGui.QIcon('%s/icon/%s' % (
+            self.scriptsPath, 'sort_down.png' if reverse else 'sort_up.png'))
+        sort_columns = [
+            (u'按日期排序', 0),
+            (u'按资产名排序', 1),
+            (u'按中文名排序', 2),
+            (u'按模型制作排序', 3),
+            (u'按模型状态排序', 4),
+            (u'按绑定制作排序', 5),
+            (u'按绑定状态排序', 6),
+            (u'按备注排序', 7),
+        ]
+        for name, column in sort_columns:
+            action = QtWidgets.QAction(name, menu)
+            if column == current_column:
+                action.setIcon(sort_icon)
+                action.setIconVisibleInMenu(True)
+            action.triggered.connect(lambda checked=False, col=column: self._do_sort(col))
+            menu.addAction(action)
+        menu.exec_(self.sort_bttn.mapToGlobal(self.sort_bttn.rect().bottomLeft()))
+        menu.deleteLater()
+
+    def _do_sort(self, column):
+        """重复选择同一列切换方向，改选其他列时从升序开始。"""
+        current_column, reverse = self._current_sort
+        self._current_sort = (column, not reverse if column == current_column else False)
+        self.ui_main_wgt.sortItems(*self._current_sort)
 
     def search_asset(self):
         """搜索资产"""

@@ -14,6 +14,7 @@ from PySide2 import QtWidgets
 from widgets.am_list_view import ListView
 from widgets.am_list_item_optimized import ListItemOptimized
 from widgets.am_thumbnail_loader import ThumbnailLoader
+from widgets.am_sort import asset_sort_key
 from widgets import user_menu, note_menu
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,8 @@ class TableWidget(QtWidgets.QTableWidget):
 
     itemSelectionChanged = QtCore.Signal()
     dragLeaveSignal = QtCore.Signal()
+    sortRequested = QtCore.Signal(int)
+    rowDataChanged = QtCore.Signal(object, object)
 
     table_header = ["创建日期", "资产名", "中文名", "模型制作", "模型状态", "绑定制作", "绑定状态", "备注"]
 
@@ -61,6 +64,10 @@ class TableWidget(QtWidgets.QTableWidget):
 
         self._items_list = []
         self._items_widget = None
+        self._pending_items = []
+        self._sort_column = 0
+        self._sort_descending = True
+        self._zh_name_item = None
 
         self.setColumnCount(len(self.table_header))
         self.setColumnWidth(0, 80)
@@ -83,12 +90,17 @@ class TableWidget(QtWidgets.QTableWidget):
         self.horizontalHeader().setMinimumHeight(25)
         self.horizontalHeader().setStretchLastSection(True)
         self.horizontalHeader().setFont(font)
-        self.horizontalHeader().sectionClicked.connect(self.sortByColumn)
+        self.setSortingEnabled(False)  # 一整行填完后统一排序，避免逐单元格插入时错行。
+        self.horizontalHeader().setSectionsClickable(True)
+        self.horizontalHeader().setSortIndicator(0, QtCore.Qt.DescendingOrder)
+        self.horizontalHeader().sectionClicked.connect(self.sortRequested.emit)
 
         self.verticalHeader().setVisible(True)
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        # 只使用接入数据库的自定义编辑框，避免 Qt 默认编辑器仅改变显示文字。
+        self.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
 
         # 延迟加载
         self._load_timer = QtCore.QTimer(self)
@@ -114,7 +126,7 @@ class TableWidget(QtWidgets.QTableWidget):
         self.user_menu.setItemsWidget(self)
         self.is_user_menu = False
 
-        self.note_menu = note_menu.NoteMenuWidget(self)
+        self.note_menu = note_menu.NoteMenuWidget(self, commit_on_focus_out=True)
         self.note_menu.setItemsWidget(self)
         self.is_note_menu = False
 
@@ -127,6 +139,22 @@ class TableWidget(QtWidgets.QTableWidget):
     def setItemsList(self, items_list):
         self._items_list = items_list
 
+    def setSort(self, column, descending):
+        self._sort_column = column
+        self._sort_descending = descending
+        order = QtCore.Qt.DescendingOrder if descending else QtCore.Qt.AscendingOrder
+        self.horizontalHeader().setSortIndicator(column, order)
+        self.sortItems(column, order)
+
+    def clearItems(self):
+        """同时取消尚未添加的旧批次，避免刷新后混入上次查询的条目。"""
+        self.note_menu.cancel()
+        self.is_note_menu = False
+        self._zh_name_item = None
+        self._pending_items = []
+        self.clearContents()
+        self.setRowCount(0)
+
     def addItem(self, data):
         """添加单个 item"""
         row = self.rowCount()
@@ -138,6 +166,7 @@ class TableWidget(QtWidgets.QTableWidget):
 
         for col, value in enumerate(values):
             if col < len(self.table_header):
+                value = "" if value is None else str(value)
                 from widgets import am_tableItem
                 if col == 3:
                     item = am_tableItem.TableModArtistItem(str(value))
@@ -157,8 +186,7 @@ class TableWidget(QtWidgets.QTableWidget):
     def addItems(self, keyword="", add=False):
         """批量添加 items"""
         if not add:
-            self.clearContents()
-            self.setRowCount(0)
+            self.clearItems()
 
         keyword_lower = keyword.lower() if keyword else ""
 
@@ -191,10 +219,9 @@ class TableWidget(QtWidgets.QTableWidget):
         for data in batch:
             self.addItem(data)
 
+        self.setSort(self._sort_column, self._sort_descending)
         if self._pending_items:
             QtCore.QTimer.singleShot(10, self._addBatchItems)
-        else:
-            self.sortItems(0, QtCore.Qt.DescendingOrder)
 
     def selectedItems(self):
         """获取选中的 items（每行返回第 0 列的 item，保证带完整 itemData）"""
@@ -245,6 +272,8 @@ class TableWidget(QtWidgets.QTableWidget):
             self.user_menu.close()
             self.is_user_menu = False
         if getattr(self, 'is_note_menu', False):
+            if self.note_menu.note_edit_finished() is False:
+                return
             self.note_menu.close()
             self.is_note_menu = False
 
@@ -272,6 +301,7 @@ class TableWidget(QtWidgets.QTableWidget):
         table_pos = self.viewport().mapToGlobal(self.pos())
         rect = self.visualItemRect(item)
         if item.column() == 2:
+            self._zh_name_item = item
             self.note_menu.setUp(item.text())
             self.note_menu.setGeometry(
                 rect.left() + table_pos.x(), rect.top() + table_pos.y(),
@@ -300,7 +330,10 @@ class TableWidget(QtWidgets.QTableWidget):
         rectX = rect.left() + table_pos.x()
         rectY = rect.bottom() + table_pos.y()
         menu = QtWidgets.QMenu()
-        for label in (u'未开始', u'制作中', u'已完成'):
+        labels = [u'未开始', u'制作中', u'已完成']
+        if item.column() == 4:  # UE 仅用于模型状态。
+            labels.append(u'UE')
+        for label in labels:
             action = QtWidgets.QAction(label, self)
             action.triggered.connect(lambda checked=False, t=label: self.status_changed(t))
             menu.addAction(action)
@@ -313,60 +346,129 @@ class TableWidget(QtWidgets.QTableWidget):
 
     def artist_changed(self, text):
         """制作人改变 -> 写库 -> 更新单元格文字。"""
-        row, col = self.currentRow(), self.currentColumn()
-        asset_name = self._current_asset_name(row)
+        col = self.currentColumn()
         if col == 3:        # 模型制作
-            self.update_asset(asset_name, "asset.mod_artist", text)
-            self.item(row, 3).setName(text)
+            self._commit_item_change(self.currentItem(), "asset.mod_artist", text)
         elif col == 5:      # 绑定制作
-            self.update_asset(asset_name, "asset.rig_artist", text)
-            self.item(row, 5).setName(text)
+            self._commit_item_change(self.currentItem(), "asset.rig_artist", text)
 
     def status_changed(self, text):
         """状态改变 -> 写库 -> 更新单元格文字。"""
-        row, col = self.currentRow(), self.currentColumn()
-        asset_name = self._current_asset_name(row)
+        col = self.currentColumn()
         if col == 4:        # 模型状态
-            self.update_asset(asset_name, "asset.mod_status", text)
-            self.item(row, 4).setName(text)
+            self._commit_item_change(self.currentItem(), "asset.mod_status", text)
         elif col == 6:      # 绑定状态
-            self.update_asset(asset_name, "asset.rig_status", text)
-            self.item(row, 6).setName(text)
+            self._commit_item_change(self.currentItem(), "asset.rig_status", text)
 
     def zh_name_changed(self, text):
         """中文名改变 -> 写库 -> 更新单元格文字。"""
-        row, col = self.currentRow(), self.currentColumn()
-        asset_name = self._current_asset_name(row)
-        if col == 2:
-            self.update_asset(asset_name, "asset.zh_name", text)
-            self.note_menu.close()
-            self.is_note_menu = False
-            self.item(row, 2).setName(text)
+        item = self._zh_name_item
+        if item is None:
+            item = self.currentItem()
+        if item is None or item.column() != 2:
+            return False
+        if not self._commit_item_change(item, "asset.zh_name", text):
+            return False
+        self._zh_name_item = None
+        self.note_menu.close()
+        self.is_note_menu = False
+        return True
 
-    def update_asset(self, asset_name, key, value):
-        """写回数据库。db/user/password/host 取自外部控制器(AssetToolsUI)，随当前项目实时变化。"""
+    def _record_table(self, item):
+        """优先按当前行的路径区分 asset/scene，支持全部目录混排及同名条目。"""
+        data = item.itemData()
+        icon = str(data[7]).replace("\\", "/").lower() if len(data) > 7 else ""
+        if "/scenes/" in icon:
+            return "scene"
+        if "/assets/" in icon:
+            return "asset"
         ctrl = self._items_widget
-        if ctrl is None or not asset_name:
-            return
-        try:
-            db = ctrl.currentProject()
-            user, password, host = ctrl.user, ctrl.password, ctrl.host
-        except AttributeError:
-            return
+        if hasattr(ctrl, "_row_table_of_selected"):
+            tab = ctrl._row_table_of_selected(item)
+        else:
+            tab = getattr(ctrl, "tab", "Assets")
+        if tab in ("Scene", "Scenes"):
+            return "scene"
+        if tab in ("Asset", "Assets"):
+            return "asset"
+        raise ValueError(u"无法确定条目属于资产还是场景，请刷新后重试。")
 
+    def _commit_item_change(self, item, key, text):
+        """写库成功后再更新整行数据及视图缓存。"""
+        if item.text() == text:
+            return True
+        asset_name = self._current_asset_name(item.row())
+        if not self.update_asset(asset_name, key, text, item=item):
+            return False
+        old_data = item.itemData()
+        new_data = list(old_data)
+        columns = (item.column(),)
+        if self._record_table(item) == "scene":
+            # scene 查询将 artist/status 同时投影到模型列和绑定列。
+            if item.column() in (3, 5):
+                columns = (3, 5)
+            elif item.column() in (4, 6):
+                columns = (4, 6)
+        for column in columns:
+            new_data[column] = text
+            self.item(item.row(), column).setName(text)
+        new_data = tuple(new_data)
+        for column in range(self.columnCount()):
+            cell = self.item(item.row(), column)
+            if cell is not None:
+                cell.setItemData(new_data)
+        self.rowDataChanged.emit(old_data, new_data)
+        self.viewport().update()
+        return True
+
+    def update_asset(self, asset_name, key, value, item=None):
+        """写回当前行所属表；只在唯一记录确实提交后返回成功。"""
+        ctrl = self._items_widget
         import psycopg2
-        update_script = '''
-            UPDATE public.asset SET "%s" = '%s'
-            WHERE "asset.name" = '%s';''' % (key, value, asset_name)
         conn = None
         cur = None
         try:
-            conn = psycopg2.connect(database=db, user=user, password=password, host=host, port="5432")
+            if ctrl is None or not asset_name:
+                raise ValueError(u"缺少项目连接信息或条目名称，请刷新后重试。")
+            table = self._record_table(item if item is not None else self.currentItem())
+            fields = {
+                "asset": {
+                    "asset.zh_name": "asset.zh_name",
+                    "asset.mod_artist": "asset.mod_artist",
+                    "asset.rig_artist": "asset.rig_artist",
+                    "asset.mod_status": "asset.mod_status",
+                    "asset.rig_status": "asset.rig_status",
+                },
+                "scene": {
+                    "asset.zh_name": "scene.zh_name",
+                    "asset.mod_artist": "scene.artist",
+                    "asset.rig_artist": "scene.artist",
+                    "asset.mod_status": "scene.status",
+                    "asset.rig_status": "scene.status",
+                },
+            }
+            # 标识符只取固定映射；用户输入的中文名/条目名通过参数传递。
+            update_script = 'UPDATE public.{0} SET "{1}" = %s WHERE "{0}.name" = %s'.format(
+                table, fields[table][key]
+            )
+            conn = psycopg2.connect(
+                database=ctrl.currentProject(), user=ctrl.user, password=ctrl.password,
+                host=ctrl.host, port="5432", connect_timeout=5
+            )
             cur = conn.cursor()
-            cur.execute(update_script)
+            cur.execute(update_script, (value, asset_name))
+            if cur.rowcount != 1:
+                raise ValueError(u"保存应更新 1 条记录，实际匹配 %s 条，请刷新后重试。" % cur.rowcount)
             conn.commit()
+            return True
         except Exception as e:
-            print(e)
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            QtWidgets.QMessageBox.warning(self, u"保存失败", str(e))
+            return False
         finally:
             if cur is not None:
                 cur.close()
@@ -387,6 +489,8 @@ class ItemsWidget(QtWidgets.QWidget):
     # 信号
     itemSelectionChanged = QtCore.Signal()
     dragLeaveSignal = QtCore.Signal()
+    sortRequested = QtCore.Signal(int)
+    rowDataChanged = QtCore.Signal(object, object)
 
     def __init__(self, parent=None, db="FFA", tab="Asset", user="", password=""):
         super(ItemsWidget, self).__init__(parent)
@@ -401,6 +505,8 @@ class ItemsWidget(QtWidgets.QWidget):
         self._items_list = []
         self._view_mode = self.IconMode
         self._external_items_widget = None  # 外部控制器引用(AssetToolsUI)
+        self._sort_column = 0
+        self._sort_descending = True
 
         # 创建子组件
         self._list_view = ListView(self)
@@ -412,6 +518,8 @@ class ItemsWidget(QtWidgets.QWidget):
         self._table_widget.setObjectName("tableWidget")
         self._table_widget.itemSelectionChanged.connect(self._onSelectionChanged)
         self._table_widget.dragLeaveSignal.connect(self.dragLeaveSignal.emit)
+        self._table_widget.sortRequested.connect(self.sortRequested.emit)
+        self._table_widget.rowDataChanged.connect(self._onRowDataChanged)
 
         # 子视图的右键位置是 viewport 坐标，上抛前转换到 ItemsWidget 坐标。
         self._list_view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
@@ -480,10 +588,45 @@ class ItemsWidget(QtWidgets.QWidget):
         self._list_view.setItemSize(self._item_size)
 
     def setItemsList(self, items_list):
-        """设置数据列表"""
-        self._items_list = items_list
-        self._list_view.setItemsList(items_list)
-        self._table_widget.setItemsList(items_list)
+        """缓存当前顺序，切换视图或重新过滤时继续使用相同的排序。"""
+        self._items_list = sorted(
+            items_list or [],
+            key=lambda data: asset_sort_key(data, self._sort_column),
+            reverse=self._sort_descending,
+        )
+        self._list_view.setItemsList(self._items_list)
+        self._table_widget.setItemsList(self._items_list)
+
+    def _onRowDataChanged(self, old_data, new_data):
+        """编辑结果同步到两种视图及待添加批次，避免重建视图时恢复旧值。"""
+        self.setItemsList([new_data if row == old_data else row for row in self._items_list])
+        for view in (self._list_view, self._table_widget):
+            view._pending_items = [
+                new_data if row == old_data else row for row in view._pending_items
+            ]
+        model = self._list_view.model()
+        for row in range(model.rowCount()):
+            standard_item = model.item(row)
+            item = standard_item.data(QtCore.Qt.UserRole)
+            if item.itemData() == old_data:
+                item.setItemData(new_data)
+                standard_item.setData(
+                    asset_sort_key(new_data, self._sort_column), self._list_view._sort_role
+                )
+        self._list_view.sortItems(self._sort_column, self._sort_descending)
+        self._table_widget.setSort(self._sort_column, self._sort_descending)
+        self._list_view.viewport().update()
+        self.rowDataChanged.emit(old_data, new_data)
+
+    def sortItems(self, column, descending):
+        """菜单和表头共用的排序入口，不重建条目或重新查询数据库。"""
+        changed = (column, descending) != (self._sort_column, self._sort_descending)
+        self._sort_column = column
+        self._sort_descending = descending
+        if changed:
+            self.setItemsList(self._items_list)
+        self._list_view.sortItems(column, descending)
+        self._table_widget.setSort(column, descending)
 
     def itemsList(self):
         """获取数据列表"""
@@ -506,8 +649,7 @@ class ItemsWidget(QtWidgets.QWidget):
     def clear(self):
         """清空"""
         self._list_view.clear()
-        self._table_widget.clearContents()
-        self._table_widget.setRowCount(0)
+        self._table_widget.clearItems()
 
     def itemCount(self):
         """获取 item 数量"""

@@ -18,6 +18,8 @@ class MainStackedWidget(QtWidgets.QStackedWidget):
 
     dragLeaveSignal = QtCore.Signal()
     itemSelectionChanged = QtCore.Signal()
+    sortRequested = QtCore.Signal(int)
+    rowDataChanged = QtCore.Signal(object, object)
 
     def __init__(self, db="FFA", tab="Asset", user="", password="", islist=False):
         super(MainStackedWidget, self).__init__()
@@ -40,6 +42,8 @@ class MainStackedWidget(QtWidgets.QStackedWidget):
         # 连接信号
         self._items_widget.itemSelectionChanged.connect(self.itemSelectionChanged.emit)
         self._items_widget.dragLeaveSignal.connect(self.dragLeaveSignal.emit)
+        self._items_widget.sortRequested.connect(self.sortRequested.emit)
+        self._items_widget.rowDataChanged.connect(self.rowDataChanged.emit)
         # 右键菜单上抛：子视图 -> ItemsWidget -> MainStackedWidget
         self._items_widget.customContextMenuRequested.connect(self._forwardContextMenu)
 
@@ -106,6 +110,10 @@ class MainStackedWidget(QtWidgets.QStackedWidget):
     def setItemsList(self, items_list):
         """设置数据列表"""
         self._items_widget.setItemsList(items_list)
+
+    def sortItems(self, column, descending):
+        """让图标、表格及其缓存保持同一排序。"""
+        self._items_widget.sortItems(column, descending)
 
     def isList(self):
         """是否为列表模式"""

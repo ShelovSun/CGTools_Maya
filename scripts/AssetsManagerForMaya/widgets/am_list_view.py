@@ -13,6 +13,7 @@ from PySide2 import QtWidgets
 
 from widgets.am_list_item_optimized import ListItemOptimized
 from widgets.am_thumbnail_loader import ThumbnailLoader
+from widgets.am_sort import asset_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +77,13 @@ class ListView(QtWidgets.QListView):
         self._item_size = 120
         self._spacing = 5  # 缩略图之间统一的上下左右间隔(px)
         self._items_list = []
+        self._pending_items = []
         self._current_item = None
         self._loading_batch_size = 20  # 每批加载数量
         self._loading_delay = 50  # 加载延迟(ms)
+        self._sort_column = 0
+        self._sort_descending = True
+        self._sort_role = int(QtCore.Qt.UserRole) + 1
 
         # 设置 ListView 属性
         self.setViewMode(QtWidgets.QListView.IconMode)
@@ -98,6 +103,7 @@ class ListView(QtWidgets.QListView):
 
         # 模型
         self._model = QtGui.QStandardItemModel(self)
+        self._model.setSortRole(self._sort_role)
         self.setModel(self._model)
 
         # 定时器用于延迟加载
@@ -140,6 +146,19 @@ class ListView(QtWidgets.QListView):
         """设置数据列表"""
         self._items_list = items_list
 
+    def sortItems(self, column, descending):
+        """重排现有条目，保留选择和已加载的缩略图。"""
+        if column != self._sort_column:
+            for row in range(self._model.rowCount()):
+                standard_item = self._model.item(row)
+                item = standard_item.data(QtCore.Qt.UserRole)
+                standard_item.setData(asset_sort_key(item.itemData(), column), self._sort_role)
+        self._sort_column = column
+        self._sort_descending = descending
+        order = QtCore.Qt.DescendingOrder if descending else QtCore.Qt.AscendingOrder
+        self._model.sort(0, order)
+        self._scheduleLoad()
+
     def _noteTooltip(self, data):
         """把资产的 asset.note (data[8]) 格式化成悬停提示：每条备注一行。
         note 形如 "[2026-7-9 16:32]正文1$[2026-7-9 16:35]正文2"（标题自带时间戳，已可读）。
@@ -161,6 +180,7 @@ class ListView(QtWidgets.QListView):
         # 创建标准 item 用于模型
         standard_item = QtGui.QStandardItem()
         standard_item.setData(item, QtCore.Qt.UserRole)
+        standard_item.setData(asset_sort_key(data, self._sort_column), self._sort_role)
         tip = self._noteTooltip(data)  # 悬停显示备注
         if tip:
             standard_item.setToolTip(tip)
@@ -212,10 +232,13 @@ class ListView(QtWidgets.QListView):
 
             standard_item = QtGui.QStandardItem()
             standard_item.setData(item, QtCore.Qt.UserRole)
+            standard_item.setData(asset_sort_key(data, self._sort_column), self._sort_role)
             tip = self._noteTooltip(data)  # 悬停显示备注
             if tip:
                 standard_item.setToolTip(tip)
             self._model.appendRow(standard_item)
+
+        self.sortItems(self._sort_column, self._sort_descending)
 
         # 如果还有更多，使用定时器继续添加
         if self._pending_items:
@@ -226,6 +249,7 @@ class ListView(QtWidgets.QListView):
 
     def clear(self):
         """清空列表"""
+        self._pending_items = []
         self._model.clear()
         self._thumbnail_loader.clearPendingLoads()
 

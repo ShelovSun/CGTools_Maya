@@ -178,6 +178,10 @@ class MainTableWidget(QtWidgets.QTableWidget):
         menu.addAction(action_nodo)
         menu.addAction(action_doing)
         menu.addAction(action_done)
+        if item.column() == 4:  # UE 仅用于模型状态。
+            action_ue = QtWidgets.QAction(u'UE', self)
+            action_ue.triggered.connect(lambda: self.status_changed(action_ue.text()))
+            menu.addAction(action_ue)
         menu.exec_(QtCore.QPoint(rectX, rectY))
 
     def zh_name_changed(self, text):

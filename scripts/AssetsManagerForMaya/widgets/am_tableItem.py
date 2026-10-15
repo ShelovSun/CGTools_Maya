@@ -15,6 +15,7 @@ from utils import jsonHelper, publish
 from PySide2 import QtGui
 from PySide2 import QtCore
 from PySide2 import QtWidgets
+from widgets.am_sort import sort_value
 
 tempPath = "{}/AssetsManagerTemp".format(os.environ.get('APPDATA'))
 scriptsPath = os.path.split(os.path.realpath(__file__))[0].replace('\\', '/').replace('widgets', '')
@@ -51,6 +52,11 @@ class TableItem(QtWidgets.QTableWidgetItem):
 
         self.textColor = QtGui.QColor(255, 255, 255, 180)
         self.textSelectedColor = QtGui.QColor(255, 255, 255, 255)
+
+    def __lt__(self, other):
+        """与图标视图使用相同的日期/文本比较规则。"""
+        column = self.column()
+        return sort_value(self.text(), column) < sort_value(other.text(), column)
 
     def setName(self, name):
         self.setText(name)
@@ -496,8 +502,18 @@ class TableStatusItem(TableItem):
             color = QtGui.QColor(135, 135, 135, 200)
         elif self._name == u"制作中":
             color = QtGui.QColor(80, 200, 80, 200)
+        elif self._name == u"UE":
+            color = QtGui.QColor(0, 85, 170, 255)
         else:
             color = QtGui.QColor(53, 56, 60, 200)
 
         painter.setBrush(QtGui.QBrush(color))
         painter.drawRoundedRect(visualRect, 3, 3)
+
+    def paintText(self, painter, option, index):
+        if self._name != u"UE":
+            return super(TableStatusItem, self).paintText(painter, option, index)
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255)))
+        painter.drawText(
+            self.visualRect(option), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, self._name
+        )

@@ -68,6 +68,7 @@ class RigToolsUI(QtWidgets.QMainWindow):
         '''
         发布绑定
         '''
+        publish.Publish().virusCheck()
         ''' 列出资产'''
         if len(cmds.ls('*_*_AST', type='transform')) == 1:
             projectName = cmds.ls('*_*_AST', type='transform')[0].split('_')[1]
@@ -140,6 +141,7 @@ class RigToolsUI(QtWidgets.QMainWindow):
             cmds.delete(('{0}_Sim_GRP').format(characterName))
         if cmds.objExists(('{0}_HairPoly_GRP').format(characterName)):
             cmds.setAttr(('{0}_HairPoly_GRP.visibility').format(characterName), 1)
+        publish.Publish().virusCheck()
         cmds.file(rename=hiRigFilePath)
         cmds.file(save=True, type='mayaAscii')
         loge = logd + u"\n> hi rig已发布"
@@ -231,20 +233,9 @@ class RigToolsUI(QtWidgets.QMainWindow):
 
         return user_name
 
-    def virusCheck(self):
-        script_node = cmds.ls(type='script')
-        virus_list = []
-        for i in script_node:
-            if i.find('_gene') != -1:
-                virus_list.append(i)
-
-        if virus_list:
-            try:
-                cmds.delete('*vaccine_gene*')
-                cmds.delete('*breed_gene*')
-            except:
-                cmds.warning('Virus Kill Failed!')
-                return
+    @staticmethod
+    def virusCheck():
+        return publish.Publish().virusCheck()
 
     def fbxExport(self, path, characterName):
         cmds.select(clear=True)

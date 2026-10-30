@@ -4,12 +4,27 @@
 # log: 第一次编写
 
 import datetime
+import ctypes
 import maya.cmds as cmds
 import maya.mel as mel
 import os
 import re
 import shutil
+import time
 import uuid
+
+from cgtools_virus_check import virus_check
+
+
+class PublishFileInUseError(IOError):
+    """目标文件持续被占用时，保留原文件并提示需要释放的具体路径。"""
+
+    def __init__(self, file_path):
+        self.file_path = file_path
+        super(PublishFileInUseError, self).__init__(
+            u"文件被其他程序占用，自动重试后仍无法写入：\n%s\n"
+            u"请关闭使用此文件的程序或释放服务器上的文件占用后，重新发布。" % file_path
+        )
 
 
 class Publish(object):
@@ -551,6 +566,7 @@ class Publish(object):
         :param mayaformat:
         :return:
         """
+        self.virusCheck()
         if cmds.objExists('%s_Hair_GRP' % characterName):
             cmds.parent('%s_Hair_GRP' % characterName, world=True)
             cmds.delete('%s_%s_AST' % (characterName, projectName))
@@ -587,6 +603,61 @@ class Publish(object):
         else:
             pass
 
+    @staticmethod
+    def _retry_file_operation(operation, file_path):
+        """只重试 Windows 共享/锁冲突；权限、路径等其他错误直接保留。"""
+        for attempt in range(4):
+            try:
+                return operation()
+            except OSError as error:
+                if getattr(error, 'winerror', None) not in (32, 33):
+                    raise
+                if attempt == 3:
+                    raise PublishFileInUseError(file_path) from error
+                time.sleep(0.5)
+
+    @staticmethod
+    def _check_target_writable(file_path):
+        """无损检查现有目标是否允许写入/替换，不截断文件或修改内容。"""
+        if not os.path.isfile(file_path):
+            return
+        if os.name != 'nt':
+            with open(file_path, 'r+b'):
+                pass
+            return
+
+        # CRT 的 open() 会把共享冲突折叠成普通 EACCES。直接用 Win32 保留
+        # ERROR_SHARING_VIOLATION，避免把权限不足误判为文件占用。
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        create_file = kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        # GENERIC_WRITE | DELETE；共享读/写/删除；OPEN_EXISTING 不改变文件内容。
+        handle = create_file(file_path, 0x40010000, 7, None, 3, 0x80, None)
+        if handle == ctypes.c_void_p(-1).value:
+            error = ctypes.WinError(ctypes.get_last_error())
+            error.filename = file_path
+            raise error
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.CloseHandle(handle)
+
+    def _backup_published_file(self, file_path):
+        """只复制本次目标的旧版本，避免移动同目录的工作文件或其他发布文件。"""
+        if not os.path.isfile(file_path):
+            return None
+        stamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S_%f')
+        history_path = self.makePath(os.path.join(
+            os.path.dirname(file_path), 'history', stamp + '_' + uuid.uuid4().hex[:8]
+        ))
+        backup_path = os.path.join(history_path, os.path.basename(file_path))
+        self._retry_file_operation(lambda: shutil.copy2(file_path, backup_path), file_path)
+        return backup_path
+
     def saveToServer(self, path, type, characterName, suffix, mayaformat='mayaAscii', createHistory=True):
         """
         保存maya文件
@@ -594,19 +665,31 @@ class Publish(object):
         :param characterName: "Saleem"
         :param suffix: Mod
         :param mayaformat: "mayaAscii" or "mayaBinary"
-        :param createHistory: bool
+        :param createHistory: 只备份当前目标文件，不清空所在目录
         :return:
         """
+        self.virusCheck()
         savePath = self.makePath('%s/%s' % (path, type))
-        if createHistory:
-            self.createHistory(savePath)
-
         filePath = '%s/%s_%s.ma' % (savePath, characterName, suffix)
         if mayaformat == 'mayaBinary':
             filePath = '%s/%s_%s.mb' % (savePath, characterName, suffix)
 
-        cmds.file(rename=filePath)
-        cmds.file(save=True, type=mayaformat)
+        self._retry_file_operation(lambda: self._check_target_writable(filePath), filePath)
+        backup_path = self._backup_published_file(filePath) if createHistory else None
+        original_scene = cmds.file(query=True, sceneName=True)
+        try:
+            # 仍以正式路径保存，保持 Maya 相对路径和 XGen 等保存回调的文件名语义。
+            cmds.file(rename=filePath)
+            cmds.file(save=True, type=mayaformat)
+        except Exception as error:
+            try:
+                cmds.file(rename=original_scene or 'untitled')
+            except Exception:
+                pass
+            detail = u"保存失败：%s\n%s" % (filePath, error)
+            if backup_path:
+                detail += u"\n旧版本备份：%s" % backup_path
+            raise RuntimeError(detail) from error
         return filePath
 
     @staticmethod
@@ -677,16 +760,4 @@ class Publish(object):
 
     @staticmethod
     def virusCheck():
-        script_node = cmds.ls(type='script')
-        virus_list = []
-        for i in script_node:
-            if i.find('_gene') != -1:
-                virus_list.append(i)
-
-        if virus_list:
-            try:
-                cmds.delete('*vaccine_gene*')
-                cmds.delete('*breed_gene*')
-            except:
-                cmds.warning('Virus Kill Failed!')
-                return
+        return virus_check(cmds)

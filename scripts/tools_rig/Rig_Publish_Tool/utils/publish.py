@@ -5,6 +5,8 @@
 
 import maya.cmds as cmds, maya.mel as mm, xgenm as xg, os, re, shutil, datetime
 
+from cgtools_virus_check import virus_check
+
 class Publish(object):
 
     def __init__(self):
@@ -163,20 +165,9 @@ class Publish(object):
             else:
                 print ('There are no procedure errors in your scene!!!')
 
-    def virusCheck(self):
-        script_node = cmds.ls(type='script')
-        virus_list = []
-        for i in script_node:
-            if i.find('_gene') != -1:
-                virus_list.append(i)
-
-        if virus_list:
-            try:
-                cmds.delete('*vaccine_gene*')
-                cmds.delete('*breed_gene*')
-            except:
-                cmds.warning('Virus Kill Failed!')
-                return
+    @staticmethod
+    def virusCheck():
+        return virus_check(cmds)
 
     def setModelAttr(self,mesh):
         cmds.setAttr(('{0}.castsShadows').format(mesh), 1)
@@ -362,6 +353,7 @@ class Publish(object):
                 cmds.warning('Can not find %s.' % coll_path)
 
     def saveXGenFile(self, characterName, projectName, path, type, suffix, mayaformat):
+        self.virusCheck()
         if cmds.objExists('%s_Hair_GRP' % characterName):
             cmds.parent('%s_Hair_GRP' % characterName, world=True)
             cmds.delete('%s_%s_AST' % (characterName, projectName))
@@ -402,6 +394,7 @@ class Publish(object):
         :param mayaformat: "ma"
         :return:
         """
+        self.virusCheck()
         self.createHistory('%s/%s' % (path, type))
         cmds.file(rename='%s/%s/%s_%s.%s' % (path, type, characterName, suffix, mayaformat))
         cmds.file(save=True, type='mayaAscii')

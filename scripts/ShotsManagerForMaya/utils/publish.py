@@ -8,8 +8,14 @@
 
 import maya.cmds as cmds, maya.mel as mm, os, re, shutil, datetime
 
+from cgtools_virus_check import virus_check
+
 
 class Publish(object):
+
+    @staticmethod
+    def virusCheck():
+        return virus_check(cmds)
 
     def __init__(self):
         pass
@@ -349,6 +355,7 @@ class Publish(object):
                 cmds.warning('Can not find %s.' % coll_path)
 
     def saveXGenFile(self, characterName, projectName, path, type, suffix, mayaformat):
+        self.virusCheck()
         if cmds.objExists('%s_Hair_GRP' % characterName):
             cmds.parent('%s_Hair_GRP' % characterName, world=True)
             cmds.delete('%s_%s_AST' % (characterName, projectName))
@@ -387,6 +394,7 @@ class Publish(object):
         :param mayaformat: "ma"
         :return:
         """
+        self.virusCheck()
         self.createHistory('%s/%s' % (path, type))
         cmds.file(rename='%s/%s/%s_%s.%s' % (path, type, characterName, suffix, mayaformat))
         cmds.file(save=True, type='mayaAscii')

@@ -48,6 +48,22 @@ mayapy setup.py build_ext --inplace
 
 The `backup/` folders next to them hold prior `.py`/`.pyx` revisions — reference only, not imported.
 
+## Server sync — CGTools_for_Maya only
+
+When the user says **“同步到服务器”** in this repository, sync the modified runtime files using this mapping:
+
+| Purpose | Path |
+| --- | --- |
+| Local repository | `E:\CGTools_for_Maya` |
+| Local scripts root | `E:\CGTools_for_Maya\scripts` |
+| Server scripts root | `Y:\MCCTools\002_CGTools\scripts` |
+
+- This mapping belongs only to **CGTools_for_Maya**. Other tools/projects have their own server destinations. Do not import a destination from another project's instructions or memory, and do not apply this mapping when working in another project.
+- Before copying, verify the current repository and the resolved source/destination paths match this mapping. If the server path is unavailable, report that instead of choosing a different destination.
+- Preserve paths relative to `scripts`: for example, local `scripts\tools_publish\PublishTools\ui\PublishTool.ui` goes to `Y:\MCCTools\002_CGTools\scripts\tools_publish\PublishTools\ui\PublishTool.ui`. Do not add another `scripts` directory under the destination.
+- Sync the changed/new runtime files needed for the requested changes. Compare contents and copy only differences; do not mirror the whole tree or delete server-only files by default. Exclude repository metadata, `AGENTS.md`, bytecode caches, temporary files, and local verification files from runtime sync.
+- After copying, verify the copied contents and report the destination and synchronized files.
+
 ## Working in this codebase
 
 - **No automated test/build/lint harness exists.** Verification is manual: load the module in Maya and exercise the tool. There is no CI, no `requirements.txt`, no package manifest — third-party deps are vendored under `scripts/Python/...` and `scripts/my_vendor/` (`Qt.py`, `six.py`).

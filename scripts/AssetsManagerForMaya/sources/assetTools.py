@@ -763,6 +763,7 @@ class AssetToolsUI(QtWidgets.QWidget):
         self.action_tbttn.clicked.connect(self.action_clicked)
         self.action_widget.actionActivated.connect(self._on_action_activated)
         self.action_widget.importRequested.connect(self._import_action_fbx)
+        self.action_widget.openRequested.connect(self._open_action_scene)
 
         # Scene 属性栏：组件列表的右键菜单、两个卷展栏以及 Assembly 表示切换。
         self.group_component_tbttn.clicked.connect(self.group_component_clicked)
@@ -853,6 +854,39 @@ class AssetToolsUI(QtWidgets.QWidget):
         """动作库选中某项：有路径则把动作套用到当前绑定文件上循环播放，
         空字符串则回到绑定文件静态预览。"""
         self.preview.playAction(fbx_path)
+
+    def _open_action_scene(self, ma_path):
+        """双击动作时打开对应 .ma；缺失时提示，当前场景有修改时先询问保存。"""
+        path = os.path.normpath(str(ma_path or "")).replace("\\", "/")
+        if not path or not os.path.isfile(path):
+            QtWidgets.QMessageBox.warning(
+                self, u"动作场景不存在", u"找不到动作的 .ma 文件：\n%s" % path
+            )
+            return
+
+        try:
+            if cmds.file(query=True, modified=True):
+                choice = QtWidgets.QMessageBox.question(
+                    self,
+                    u"保存当前场景",
+                    u"当前场景有未保存的修改，打开动作前是否保存？",
+                    QtWidgets.QMessageBox.Save
+                    | QtWidgets.QMessageBox.Discard
+                    | QtWidgets.QMessageBox.Cancel,
+                    QtWidgets.QMessageBox.Save,
+                )
+                if choice not in (QtWidgets.QMessageBox.Save, QtWidgets.QMessageBox.Discard):
+                    return
+                if choice == QtWidgets.QMessageBox.Save:
+                    mel.eval("SaveScene;")
+                    if cmds.file(query=True, modified=True):
+                        return  # 保存窗口取消或保存未完成时保留当前场景。
+
+            cmds.file(path, open=True, force=True, type="mayaAscii", ignoreVersion=True)
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(
+                self, u"打开动作失败", u"无法打开动作场景：\n%s\n\n%s" % (path, e)
+            )
 
     def _import_action_fbx(self, fbx_path):
         """通过 Maya FBX importer 把动作列表中右键选择的文件导入当前场景。"""

@@ -117,6 +117,7 @@ class ModPubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         '''
         发布模型
         '''
+        publish.Publish().virusCheck()
         modPub = publish.Publish()
         projectName = cmds.ls('*_*_AST', type='transform')[0].split('_')[1]
         characterName = cmds.ls('*_*_AST', type='transform')[0].split('_')[0]

@@ -29,10 +29,12 @@ class AssetActionWidget(QtWidgets.QWidget):
     """资产动作浏览器。
 
     actionActivated(str): 选中动作时发出其 .fbx 全路径;空字符串表示回到绑定文件静态预览。
+    openRequested(str): 双击动作时发出同目录、同名 .ma 的全路径。
     """
 
     actionActivated = QtCore.Signal(str)
     importRequested = QtCore.Signal(str)
+    openRequested = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super(AssetActionWidget, self).__init__(parent)
@@ -67,21 +69,22 @@ class AssetActionWidget(QtWidgets.QWidget):
         self._list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         self._list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self._list.itemClicked.connect(self._on_item_clicked)
+        self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._list.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._show_context_menu)
 
         header = self._list.header()
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
-        header.setSortIndicator(0, QtCore.Qt.AscendingOrder)
+        header.setSortIndicator(1, QtCore.Qt.DescendingOrder)
         header.setStretchLastSection(False)
         header.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
         header.resizeSection(0, 320)
         header.resizeSection(1, 160)
         header.resizeSection(2, 90)
         header.sectionClicked.connect(self._on_header_clicked)
-        self._sort_column = 0
-        self._sort_order = QtCore.Qt.AscendingOrder
+        self._sort_column = 1
+        self._sort_order = QtCore.Qt.DescendingOrder
         outer.addWidget(self._list, 1)
 
     # ------------------------------------------------------------------ 对外接口
@@ -118,14 +121,15 @@ class AssetActionWidget(QtWidgets.QWidget):
         elif not fbx_files:
             self._add_hint(u"该资产无动作 (.fbx)")
         else:
-            for rel, full, mtime, size in fbx_files:
+            for _rel, full, mtime, size in fbx_files:
+                name = os.path.splitext(os.path.basename(full))[0]
                 it = QtWidgets.QTreeWidgetItem([
-                    rel,
+                    name,
                     self._format_mtime(mtime),
                     self._format_size(size),
                 ])
                 it.setData(0, QtCore.Qt.UserRole, full)
-                it.setData(0, _SORT_VALUE_ROLE, rel.lower())
+                it.setData(0, _SORT_VALUE_ROLE, name.lower())
                 it.setData(1, _SORT_VALUE_ROLE, mtime if mtime is not None else -1.0)
                 it.setData(2, _SORT_VALUE_ROLE, size if size is not None else -1)
                 it.setToolTip(0, full)
@@ -254,6 +258,14 @@ class AssetActionWidget(QtWidgets.QWidget):
         if path is None:
             return  # 提示项(无 UserRole)
         self.actionActivated.emit(str(path))
+
+    def _on_item_double_clicked(self, item, _column=0):
+        if item is None:
+            return
+        path = item.data(0, QtCore.Qt.UserRole)
+        if not path:
+            return  # “资产预览”和提示项没有对应动作场景。
+        self.openRequested.emit(os.path.splitext(str(path))[0] + ".ma")
 
     def _show_context_menu(self, point):
         """动作条目右键菜单；“资产预览”和提示行不提供文件操作。"""

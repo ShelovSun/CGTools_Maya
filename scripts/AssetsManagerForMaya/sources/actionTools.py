@@ -873,19 +873,7 @@ class ActionToolsUI(QtWidgets.QWidget):
 
     @staticmethod
     def virusCheck():
-        script_node = cmds.ls(type='script')
-        virus_list = []
-        for i in script_node:
-            if i.find('_gene') != -1:
-                virus_list.append(i)
-
-        if virus_list:
-            try:
-                cmds.delete('*vaccine_gene*')
-                cmds.delete('*breed_gene*')
-            except Exception as e:
-                cmds.warning('Virus Kill Failed!')
-                return
+        return publish.Publish().virusCheck()
 
     def posePercentSliderChanged(self):
         """

@@ -185,6 +185,7 @@ class ScenePubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         '''
         发布Map场景组件
         '''
+        publish.Publish().virusCheck()
         scenePub = publish.Publish()
         log = ""
         if self.override_check(assemblies):
@@ -233,6 +234,7 @@ class ScenePubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         '''
         发布多场景组件
         '''
+        publish.Publish().virusCheck()
         scenePub = publish.Publish()
         type, project, path = self.getTypeAndProject()
         grp_name = assemblies[0].rsplit("_", 1)[0] + "_GRP"
@@ -284,6 +286,7 @@ class ScenePubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         '''
         发布单个场景组件
         '''
+        publish.Publish().virusCheck()
         scenePub = publish.Publish()
         if self.override_check(assemblies):
             type, project, path = self.getTypeAndProject()
@@ -512,6 +515,7 @@ class ScenePubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         :param asset_name:
         :return:
         '''
+        publish.Publish().virusCheck()
         ''' 检查插件'''
         if self.scenePub.pluginInfo('sceneAssembly.mll') is False:
             QtWidgets.QMessageBox.warning(self, '警告', '未发现 sceneAssembly，请加载')
@@ -570,6 +574,7 @@ class ScenePubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         :param asset_name:
         :return:
         '''
+        publish.Publish().virusCheck()
         ''' 检查插件'''
         if self.scenePub.pluginInfo('redshift4maya.mll') is False:
             QtWidgets.QMessageBox.warning(self, '警告', '未发现 Redshift，请安装并加载')
@@ -620,6 +625,7 @@ class ScenePubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         :param asset_name:
         :return:
         '''
+        publish.Publish().virusCheck()
         self.mod_path = self.export_data(grp_name, 'Mod', history)
         current_type = self.ui.publishType_comb.currentText()
         if current_type == 'Map':
@@ -635,6 +641,7 @@ class ScenePubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         :param asset_name:
         :return:
         '''
+        publish.Publish().virusCheck()
         AD_path = self.export_data(grp_name, 'Assembly', history)
         current_type = self.ui.publishType_comb.currentText()
         if current_type == 'Map':

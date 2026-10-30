@@ -589,6 +589,8 @@ class Animation(utils.Pose): #继承自Pose，增加一些命令，上面被调�
         
         :rtype: None
         """
+        from utils import publish
+        publish.Publish().virusCheck()
         objects = list(self.objects().keys())
 
         fileType = fileType or DEFAULT_FILE_TYPE

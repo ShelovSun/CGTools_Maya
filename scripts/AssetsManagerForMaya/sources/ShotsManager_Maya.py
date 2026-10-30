@@ -722,14 +722,20 @@ class ShotsManagerMayaUI(QtWidgets.QMainWindow):
 
     def check_before_publish(self):
         """ 发布前检查 """
+        try:
+            self.Pub.virusCheck()
+        except RuntimeError as error:
+            QtWidgets.QMessageBox.warning(self, u'发布已中止', str(error))
+            return False
         mll_list = ['AbcExport.mll', 'AbcImport.mll', 'fbxmaya.mll']
         for mll in mll_list:
             if self.Pub.pluginInfo(mll) is False:
                 QtWidgets.QMessageBox.warning(self, '警告', '未发现{}，请加载!'.format(mll))
-                return
+                return False
 
         self.Pub.removeUnknownNodes()
         self.Pub.removeModelChangeError()
+        return True
 
     def aniPublish(self):
         """
@@ -857,6 +863,7 @@ class ShotsManagerMayaUI(QtWidgets.QMainWindow):
             print("Error : snapshot is stuck:%s" % e)
 
     def saveMaya(self, ma_file_Path):
+        self.Pub.virusCheck()
         if QtCore.QFileInfo(ma_file_Path).exists():
             reply = QtWidgets.QMessageBox.question(self, '提示', '文件已存在，确定覆盖吗？',
                                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)

@@ -2078,7 +2078,7 @@ color: rgb(120, 120, 120);</string>
          <item>
           <widget class="QFrame" name="frame_7">
            <property name="styleSheet">
-            <string notr="true">background-color: rgb(73, 73, 73);</string>
+            <string notr="true">QFrame#frame_7 { background-color: rgb(73, 73, 73); }</string>
            </property>
            <property name="frameShape">
             <enum>QFrame::Shape::NoFrame</enum>
@@ -2730,7 +2730,7 @@ color: rgb(120, 120, 120);</string>
                  </font>
                 </property>
                 <property name="styleSheet">
-                 <string notr="true">background-color: rgb(73, 73, 73);</string>
+                 <string notr="true">QGroupBox#groupBox_4 { background-color: rgb(73, 73, 73); }</string>
                 </property>
                 <property name="title">
                  <string/>
@@ -2758,32 +2758,81 @@ color: rgb(120, 120, 120);</string>
                   <number>0</number>
                  </property>
                  <item row="0" column="0">
-                  <widget class="QCheckBox" name="save_action_cBox">
-                   <property name="enabled">
-                    <bool>true</bool>
+                  <layout class="QHBoxLayout" name="action_local_dir_layout">
+                   <property name="spacing">
+                    <number>4</number>
                    </property>
-                   <property name="maximumSize">
-                    <size>
-                     <width>16777215</width>
-                     <height>20</height>
-                    </size>
-                   </property>
-                   <property name="font">
-                    <font>
-                     <family>Microsoft YaHei UI</family>
-                     <pointsize>10</pointsize>
-                    </font>
-                   </property>
-                   <property name="toolTip">
-                    <string>如果勾选则弹窗保存.ma到指定路径</string>
-                   </property>
-                   <property name="text">
-                    <string>maya文件同时保存到本地</string>
-                   </property>
-                   <property name="checked">
-                    <bool>false</bool>
-                   </property>
-                  </widget>
+                   <item>
+                    <widget class="QCheckBox" name="save_action_cBox">
+                     <property name="enabled">
+                      <bool>true</bool>
+                     </property>
+                     <property name="maximumSize">
+                      <size>
+                       <width>16777215</width>
+                       <height>20</height>
+                      </size>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <family>Microsoft YaHei UI</family>
+                       <pointsize>10</pointsize>
+                      </font>
+                     </property>
+                     <property name="toolTip">
+                      <string>勾选后在发布结束时选择文件夹，复制本次发布成功的FBX</string>
+                     </property>
+                     <property name="text">
+                      <string>maya文件同时保存到本地</string>
+                     </property>
+                     <property name="checked">
+                      <bool>false</bool>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="action_local_dir_bttn">
+                     <property name="minimumSize">
+                      <size>
+                       <width>20</width>
+                       <height>20</height>
+                      </size>
+                     </property>
+                     <property name="maximumSize">
+                      <size>
+                       <width>20</width>
+                       <height>20</height>
+                      </size>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <family>Microsoft YaHei UI</family>
+                       <pointsize>12</pointsize>
+                       <bold>false</bold>
+                      </font>
+                     </property>
+                     <property name="toolTip">
+                      <string>设置发布后文件夹选择框的默认目录</string>
+                     </property>
+                     <property name="text">
+                      <string>⋯</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <spacer name="action_local_dir_spacer">
+                     <property name="orientation">
+                      <enum>Qt::Orientation::Horizontal</enum>
+                     </property>
+                     <property name="sizeHint" stdset="0">
+                      <size>
+                       <width>0</width>
+                       <height>0</height>
+                      </size>
+                     </property>
+                    </spacer>
+                   </item>
+                  </layout>
                  </item>
                  <item row="0" column="1">
                   <widget class="QCheckBox" name="send_ue_cBox">

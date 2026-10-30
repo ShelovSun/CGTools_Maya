@@ -757,8 +757,43 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
 
         # Action发布：移除.ui中写死的单组表单，改用代码动态生成的组件容器
         self._setup_action_page()
+        self._setup_action_local_dir()
         # 构建 Rig 标签页的换皮面板
         self._build_rig_surface_panel()
+
+    def _setup_action_local_dir(self):
+        # 复用 AssetsManager 窗口位置/大小的配置，不写外部 ShotManager 的 prefs.ini。
+        settings = QtCore.QSettings('AssetsManager', 'AssetsManagerSettings')
+        self._action_local_dir = str(settings.value('PublishTool/action_local_dir', '') or '')
+        self._update_action_local_dir_tooltip()
+        self.ui.action_local_dir_bttn.clicked.connect(self._choose_action_local_dir)
+
+    def _update_action_local_dir_tooltip(self):
+        folder = self._action_local_dir or u'未设置（点击 ⋯ 选择）'
+        self.ui.action_local_dir_bttn.setToolTip(
+            u'设置发布后文件夹选择框的默认目录\n默认文件夹：{0}'.format(folder))
+        self.ui.save_action_cBox.setToolTip(
+            u'勾选后在发布结束时选择文件夹，复制本次发布成功的FBX。\n默认文件夹：{0}'.format(folder))
+
+    def _choose_action_local_dir(self):
+        folder = QtWidgets.QFileDialog.getExistingDirectory(
+            self, u'选择动作FBX本地保存文件夹', self._action_local_dir)
+        if not folder:
+            return False
+        folder = os.path.normpath(folder)
+        if not os.path.isdir(folder):
+            QtWidgets.QMessageBox.warning(self, u'提示', u'文件夹不存在：\n{0}'.format(folder))
+            return False
+
+        settings = QtCore.QSettings('AssetsManager', 'AssetsManagerSettings')
+        settings.setValue('PublishTool/action_local_dir', folder)
+        settings.sync()
+        if settings.status() != QtCore.QSettings.NoError:
+            QtWidgets.QMessageBox.warning(self, u'提示', u'无法记住本地保存文件夹，请重新选择。')
+            return False
+        self._action_local_dir = folder
+        self._update_action_local_dir_tooltip()
+        return True
 
     def _setup_action_page(self):
         """ 把Action页右侧写死的表单（项目/资产名/动作名/帧数范围/Start-End）去掉，
@@ -1937,6 +1972,13 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         return item
 
     def yes_bttn_clicked(self):
+        # 四个发布页共用现有查杀入口；失败时在写文件和数据库之前中止。
+        try:
+            Pub = publish.Publish()
+            Pub.virusCheck()
+        except RuntimeError as error:
+            QtWidgets.QMessageBox.warning(self, u'发布已中止', str(error))
+            return
         tab = self.ui.Pub_Tab.currentIndex()
         if tab == 0:
             self._modPublish()
@@ -1979,6 +2021,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """
         发布模型
         """
+        publish.Publish().virusCheck()
         self.ui.log_treeWgt.clear()
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_mod()
         note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
@@ -2086,6 +2129,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """
         发布绑定
         """
+        publish.Publish().virusCheck()
         print("_rigPublish")
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_rig()
         note = ""  # note 改由 createNoteForSQL 统一写入，新建资产时先存空
@@ -2177,7 +2221,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             self.logMsg(None, u"all rig已发布", "succeed")
         except Exception as e:
             self.logMsg(None, u"all rig发布失败:%s" % e, "failed")
-            QtWidgets.QMessageBox.warning(self, u"警告：", u"<h3>Rig发布出错，终止进程！</h3>")
+            QtWidgets.QMessageBox.warning(self, u"警告：", u"Rig 发布未完成。\n\n%s" % e)
             self.ui.log_progressBar.setVisible(False)
             cmds.waitCursor(state=False)
             return
@@ -2198,11 +2242,20 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
             except:
                 pass
             hiRigFile = Pub.saveToServer(path, self.projectSetting()['rigFolder'], characterName,
-                                         suffix=self.projectSetting()['rigFileHi'],
-                                         createHistory=False)
+                                         suffix=self.projectSetting()['rigFileHi'])
             self.logMsg(None, u"hi rig已发布", "succeed")
         except Exception as e:
             self.logMsg(None, u"hi rig发布失败:%s" % e, "failed")
+            # hi rig 是在内存中删减 all rig 后得到的；失败时恢复完整版本，避免重试丢失组件。
+            try:
+                cmds.file(allRigFile, open=True, type='mayaAscii', ignoreVersion=True,
+                          options='v=0', force=True)
+            except Exception as restore_error:
+                self.logMsg(None, u"请手动重开完整绑定 %s：%s" % (allRigFile, restore_error), "failed")
+            QtWidgets.QMessageBox.warning(self, u"警告：", u"Rig 发布未完成。\n\n%s" % e)
+            self.ui.log_progressBar.setVisible(False)
+            cmds.waitCursor(state=False)
+            return
         self.ui.log_progressBar.setValue(80)
         ''' ================ fbx发布 ============================================================ '''
         if self.ui.fbx_cBox_2.isChecked():
@@ -2269,6 +2322,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         self.ui.log_progressBar.setVisible(False)
 
     def _scenePublish(self):
+        publish.Publish().virusCheck()
         res = self.check_sc()
         if not res:
             return
@@ -2287,6 +2341,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """
         发布Map场景组件
         """
+        publish.Publish().virusCheck()
         print("_scenePublish_Map")
         Pub = publish.Publish()
         self._log = "log:"
@@ -2375,6 +2430,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """
         发布多场景组件
         """
+        publish.Publish().virusCheck()
         print("scenePublish_GRP")
         Pub = publish.Publish()
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_sc()
@@ -2483,6 +2539,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """
         发布单个场景组件
         """
+        publish.Publish().virusCheck()
         print("_scenePublish_Single")
         Pub = publish.Publish()
         projectName, characterName, characterCHName, publishType, path = self.get_publishInfo_sc()
@@ -2586,9 +2643,10 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
     def _actionsPublish(self):
         """
         动作库发布（总）：循环发布所有勾选的组件对应的动作。
-        若勾选“同时保存到本地”，则在全部发布完成后，让用户选择一个文件夹，
+        若勾选“同时保存到本地”，在发布完成后选择文件夹，选择框默认打开已设置的目录。
         把刚刚发布成功的fbx拷贝过去（不重存maya、不重复导出fbx）。
         """
+        publish.Publish().virusCheck()
         if not self.action_items:
             QtWidgets.QMessageBox.warning(self, 'Warning', u'没有要发布的动作，请先勾选Reference!!!')
             return
@@ -2636,7 +2694,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         msg.exec_()
         self.ui.log_progressBar.setVisible(False)
 
-        # 同时保存到本地：把刚刚发布成功的fbx拷贝到用户选择的文件夹
+        # 同时保存到本地：发布结束后选择文件夹，已设置的目录只作为默认浏览位置。
         if self.ui.save_action_cBox.isChecked():
             self._saveToLocal()
 
@@ -2816,6 +2874,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         :param info: ActionPublishItem.get_info() 返回的字典
         :rtype: bool  发布成功返回True
         """
+        publish.Publish().virusCheck()
         Pub = Pub or publish.Publish()
         characterName = info['asset_name']
         actionName = info['action_name']
@@ -2874,14 +2933,17 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         return ok
 
     def _saveToLocal(self):
-        """ 同时保存到本地：把刚刚发布成功的fbx拷贝到用户选择的文件夹
+        """ 同时保存到本地：发布结束后选择文件夹，默认打开已设置的目录。
 
         不重存maya、不重复导出fbx——直接拷贝动作库里刚生成的同一份fbx。
         """
         if not self._last_published_fbx:
             QtWidgets.QMessageBox.information(self, u"提示", u"没有可拷贝的fbx（本次未成功发布fbx）")
             return
-        result = cmds.fileDialog2(fileMode=3, caption=u"选择保存fbx的文件夹")
+        dialog_options = dict(fileMode=3, caption=u"选择保存fbx的文件夹")
+        if self._action_local_dir:
+            dialog_options['startingDirectory'] = self._action_local_dir
+        result = cmds.fileDialog2(**dialog_options)
         if not result:
             return
         folder = result[0]
@@ -2907,6 +2969,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         动作库发布
         :return:
         """
+        publish.Publish().virusCheck()
         projectName, characterName, actionName, path, start, end = self.get_publishInfo_ac()
         # projectName, characterName, CHName, actionName, publishType, path, start, end = self.get_publishInfo_ac()
         self._log = "log:"
@@ -3658,6 +3721,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         :param history:
         :return:
         """
+        publish.Publish().virusCheck()
         ''' 检查插件'''
         self.port_path = self.export_data(grp_name, 'Port', history)
         '''发布GPU，Proxy，'''
@@ -3722,6 +3786,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         # if self.Pub.pluginInfo('sceneAssembly.mll') is False:
         #     QtWidgets.QMessageBox.warning(self, '警告', '未发现 sceneAssembly，请加载')
         #     return
+        publish.Publish().virusCheck()
         self.port_path = self.export_data(grp_name, 'Port', True)
         gpu_path = self.export_GPU(asset_name)
         proxy_path = self.export_proxy_Rs(asset_name)
@@ -3766,6 +3831,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         :param asset_name:
         :return:
         """
+        publish.Publish().virusCheck()
         self.mod_path = self.export_data(grp_name, 'Mod', history)
         current_type = self.ui.publishType_comb.currentText()
         if current_type == 'Map':
@@ -3783,6 +3849,7 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         :param asset_name:
         :return:
         """
+        publish.Publish().virusCheck()
         AD_path = self.export_data(grp_name, 'Assembly', history)
         # current_type = self.ui.publishType_comb.currentText()
         # if current_type == 'Map':
@@ -3914,7 +3981,8 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         """发布动画fbx
 
         选中该角色的 ``<namespace>:DeformationSystem`` 骨骼组，
-        再调用 ``exportFBX`` 导出带烘焙动画的 fbx。
+        按指定范围裁出单个动画片段，再调用 ``exportFBX`` 导出烘焙动画。
+        导出后恢复时间线、FBX 片段设置和原始选择。
 
         :param namespace: 要导出的角色命名空间（不含前导冒号）。为None时
                           从当前选择推断（兼容旧的单个发布流程）。
@@ -3945,17 +4013,55 @@ class PubToolsUI(MayaQWidgetDockableMixin, QtWidgets.QMainWindow):
         if not cmds.objExists(deformGrp):
             raise RuntimeError(u"找不到角色 {0} 的骨骼组：{1}".format(namespace, deformGrp))
 
-        cmds.select(deformGrp, replace=True)
-        print(u"导出角色：{0}  骨骼组：{1}".format(namespace, deformGrp))
+        playback_range = {
+            flag: cmds.playbackOptions(query=True, **{flag: True})
+            for flag in ('minTime', 'maxTime', 'animationStartTime', 'animationEndTime')
+        }
+        scene_modified = cmds.file(query=True, modified=True)
+        original_takes = []
+        for take in mel.eval('FBXExportSplitAnimationIntoTakes -q;') or []:
+            name, frames = take[len('name='):].rsplit(' start=', 1)
+            take_start, take_end = frames.rsplit(' end=', 1)
+            original_takes.append((name, float(take_start), float(take_end)))
+        delete_original_take = mel.eval('FBXExportDeleteOriginalTakeOnSplitAnimation -q;')
 
-        # 导出 fbx（exportFBX 内部用 FBXExport -s 导出当前选择及其层级）
+        # BakeComplexStart/End 只控制烘焙，不会同步 Take 范围，也不会裁掉直接打键
+        # 的范围外动画。明确导出单个片段，同时同步 FBX 的全局播放范围。
         try:
+            cmds.select(deformGrp, replace=True)
+            print(u"导出角色：{0}  骨骼组：{1}".format(namespace, deformGrp))
+            cmds.playbackOptions(
+                minTime=start, maxTime=end, animationStartTime=start, animationEndTime=end
+            )
+            mel.eval(
+                'FBXExportSplitAnimationIntoTakes -clear; '
+                'FBXExportSplitAnimationIntoTakes -v "Take 001" %s %s; '
+                'FBXExportDeleteOriginalTakeOnSplitAnimation -v true;' % (start, end)
+            )
             self.Pub.exportFBX(True, start, end, fbxPath)
         finally:
-            # 还原用户的原始选择
-            cmds.select(clear=True)
-            if original_selection:
-                cmds.select(original_selection)
+            # FBXPushSettings/PopSettings 不包含片段列表和删除原 Take 的选项，需显式恢复。
+            try:
+                mel.eval('FBXExportSplitAnimationIntoTakes -clear;')
+                for name, take_start, take_end in original_takes:
+                    mel.eval(
+                        'FBXExportSplitAnimationIntoTakes -v %s %s %s;'
+                        % (json.dumps(name, ensure_ascii=False), take_start, take_end)
+                    )
+                mel.eval(
+                    'FBXExportDeleteOriginalTakeOnSplitAnimation -v %s;'
+                    % ('true' if delete_original_take else 'false')
+                )
+            finally:
+                try:
+                    cmds.playbackOptions(**playback_range)
+                finally:
+                    try:
+                        cmds.select(clear=True)
+                        if original_selection:
+                            cmds.select(original_selection)
+                    finally:
+                        cmds.file(modified=scene_modified)
 
 
 def showWindow(tab=0, _project=None, _type=None):

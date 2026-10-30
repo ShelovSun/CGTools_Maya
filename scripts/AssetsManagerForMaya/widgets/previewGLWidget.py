@@ -1219,6 +1219,7 @@ class PreviewGLWidget(QtWidgets.QWidget):
         self._fallback_pixmap_path = ""
         self._current_fbx = None        # 当前绑定文件 rig(去重 + 防过期)
         self._current_action = None     # 当前播放的动作路径(None=静态)
+        self._current_action_stamp = None
         self._selected_action = None    # 动作列表最后选中的路径(解析失败时也保留)
         self._base_name = None          # 数据库资产名；皮肤切换时用于组成完整显示名
         self._base_zh_name = None
@@ -1237,7 +1238,7 @@ class PreviewGLWidget(QtWidgets.QWidget):
         self._gl_generation = 0         # workspaceControl 重开时会替换失效的 GL 子控件
         self._cache = {}                # rig path -> (mtime, MeshData, AnimData|None, images)
         self._cache_order = []
-        self._anim_cache = {}           # (rig, action) -> (AnimData, images)
+        self._anim_cache = {}           # (rig, action) -> (file_stamp, AnimData, images)
         self._anim_order = []
         self._skin_cache = {}           # rig path -> (mtime, SkinData)  (worker 线程共享)
         self._skin_lock = threading.Lock()
@@ -1721,6 +1722,7 @@ class PreviewGLWidget(QtWidgets.QWidget):
         self._pending_icon = None
         self._current_fbx = None
         self._current_action = None
+        self._current_action_stamp = None
         self._selected_action = None
         self._name = None
         self._base_name = None
@@ -1743,17 +1745,26 @@ class PreviewGLWidget(QtWidgets.QWidget):
     def playAction(self, action_path):
         """把动作文件的骨骼动画套用到当前绑定文件上循环播放。
         action_path 为空/无效 -> 回到绑定文件静态预览。"""
+        # 选中资产后有 200ms 防抖；立即点动作时先提交该资产的加载，
+        # 避免 rig 仍为空，或防抖稍后触发并把已选动作重置成静态预览。
+        if self._load_timer.isActive():
+            self._load_timer.stop()
+            self._loadPending()
         norm = action_path.replace("\\", "/") if action_path else ""
         self._selected_action = norm or None
         rig = self._current_fbx
         if not norm or rig is None or self._gl_failed or self._gl_view is None \
                 or not os.path.isfile(norm):
             self._current_action = None
+            self._current_action_stamp = None
             self._showRigStatic()
             return
-        if norm == self._current_action:
+        stamp = self._animFileStamp(rig, norm)
+        if norm == self._current_action and stamp is not None \
+                and stamp == self._current_action_stamp:
             return
         self._current_action = norm
+        self._current_action_stamp = stamp
 
         cached = self._animCacheGet(rig, norm)
         if cached is not None:
@@ -1801,6 +1812,7 @@ class PreviewGLWidget(QtWidgets.QWidget):
             return
         print("[PreviewGL] _onCombineFailed: fall back to static")
         self._current_action = None
+        self._current_action_stamp = None
         self._showRigStatic()
 
     # ----------------------------------------------------------- 加载调度
@@ -1848,6 +1860,7 @@ class PreviewGLWidget(QtWidgets.QWidget):
 
         self._current_fbx = norm
         self._current_action = None     # 切换资产 -> 回到静态
+        self._current_action_stamp = None
         self._selected_action = None
 
         cached = self._cacheGet(norm)
@@ -1913,20 +1926,35 @@ class PreviewGLWidget(QtWidgets.QWidget):
             old = self._cache_order.pop(0)
             self._cache.pop(old, None)
 
+    @staticmethod
+    def _animFileStamp(rig, action):
+        """同名动作或绑定重新发布后，使已有的动画预览失效。"""
+        try:
+            stats = (os.stat(rig), os.stat(action))
+            return tuple((stat.st_mtime_ns, stat.st_size) for stat in stats)
+        except OSError:
+            return None
+
     def _animCacheGet(self, rig, action):
         rec = self._anim_cache.get((rig, action))
         if not rec:
+            return None
+        stamp, anim, images = rec
+        if stamp != self._animFileStamp(rig, action):
             return None
         try:
             self._anim_order.remove((rig, action))
         except ValueError:
             pass
         self._anim_order.append((rig, action))
-        return rec
+        return anim, images
 
     def _animCachePut(self, rig, action, anim, images):
+        stamp = self._animFileStamp(rig, action)
+        if stamp is None:
+            return
         key = (rig, action)
-        self._anim_cache[key] = (anim, images)
+        self._anim_cache[key] = (stamp, anim, images)
         if key in self._anim_order:
             self._anim_order.remove(key)
         self._anim_order.append(key)
